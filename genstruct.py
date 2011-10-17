@@ -20,6 +20,9 @@ class SBU(object):
     def __init__(self, type, sitelabel, coordinates):
         self.type = type
         self.sitelabel = sitelabel
+
+        # TODO(pboyd): shift the coordinates by the COM such that
+        # they are centred at the origin
         self.coordinates = array(coordinates)
         self.mass = 0. 
         self.numb = 0 
@@ -30,14 +33,19 @@ class SBU(object):
         self.links = []
         self.bondpoints = []
         # populate arrays
-        # structcalc is a tuple of important connectivity information of the linker
+        # structcalc is a tuple of important connectivity information
+        # of the linker
         structcalc = coord_matrix(self.sitelabel, self.coordinates)
         self.connect = structcalc[0]
         self.bonding = structcalc[1]
         self.nbonds = structcalc[2]
 
-        # calculate centre of mass        
+        # calculate centre of mass      
         self.COM = self.centre_of_mass()
+
+        # shift all coordinates back by the centre of mass
+        self.COM_shift()
+
         # check unsaturated bonds for possible links
         self.check_unsat()
 
@@ -123,7 +131,14 @@ class SBU(object):
         self.mass = bottom
         return top / bottom
 
-
+    def COM_shift(self):
+        """
+        Shifts all the coordinates such that the centre of mass (COM)
+        is at the origin.
+        This will make it easier for geometry shifts and rotations
+        """
+        for icoord, xyz in enumerate(self.coordinates):
+            self.coordinates[icoord] = xyz - self.COM
 
 def coord_matrix(atom, coord):
     """
@@ -167,11 +182,38 @@ def length(coord1, coord2):
     return np.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + 
                       vector[2] * vector[2])
 
-def align(rot_matrix, shift_vect):
+def align(coords, alignvect, alignpt, statvect, statpt):
     """
     align two vectors and adjust the coordinates
-    This is based on an axis-angle rotation and shift
+    This is dnoe by an axis-angle rotation then a shift
     """
+
+    # the order of the cross product is important to 
+    # signify which vector remains stationary (statvect)
+    # and which will rotate.  This axis will determine the
+    # proper rotation when applying the rotation matrix
+
+    axis = np.cross(statvect, alignvect)
+    axis = axis / np.sqrt(np.dot(axis, axis))
+
+    angle = calc_angle(statvect, alignvect)
+
+    # Transformation matrix for rotation
+    transform = rotation_matrix(axis, angle)
+
+    # array of shifted coordinates
+    shiftcoords = np.zeros((len(coords),3))
+
+    # shift the alignment vector by the rotation matrix
+    alignvect = array(alignvect * transform)[0]
+    alignpt = array(alignpt * transform)[0]
+    shiftvector = (statpt) - (alignpt - alignvect)
+
+    for ixyz, cart in enumerate(coords):
+        shiftcoords[ixyz] = array(cart * transform)[0]
+        shiftcoords[ixyz] = shiftcoords[ixyz] + shiftvector
+
+    return shiftcoords
 
 
 def rotation_axis(vect1, vect2):
@@ -229,7 +271,17 @@ def main():
     metal = SBU("Zn", sample.atom_labels[1], sample.atom_coordinates[1])
 
     # TODO(pboyd): add random choice of link and match metal with linker
-    print metal.links, linkr.links
+
+    # as a test add 5 BTC groups to the metal
+
+    for i in range(len(metal.links)):
+        testings = align(linkr.coordinates, linkr.links[0],
+                     linkr.bondpoints[0], -1*metal.links[i],
+                     metal.bondpoints[i])
+        write_xyz("rotation_test%s"%str(i), linkr.sitelabel, testings)
+    write_xyz("original", linkr.sitelabel, linkr.coordinates)
+    write_xyz("metal", metal.sitelabel, metal.coordinates)
+
 if __name__ == '__main__':
     main()
 
