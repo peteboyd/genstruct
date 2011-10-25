@@ -71,6 +71,7 @@ class SBU(object):
         checks for certain unsaturated atoms and adds links accordingly
         """
 
+        purgeatoms = []
         for indx, atom in enumerate(self.sitelabel):
             # test for carboxylate
             if atom == "C":
@@ -90,14 +91,30 @@ class SBU(object):
                 bondatm = self.bonding[indx][0]
                 vect = self.coordinates[indx] - self.coordinates[bondatm]
                 self.links.append(vect)
+                purgeatoms.append(indx)
 
             # TODO(pboyd): add other tests for different 
             # coordinating atoms
+
+        # purge any coordinates in self.coordinates belonging to "X"'s
+        # as they are now part of self.links and self.bonding
+        self.purge(purgeatoms)
+
         self.links = array(self.links)
         self.bondpoints = array(self.bondpoints)
 
-    def carboxylate_test(self, atom):
+    def purge(self, atoms):
+        """Remove entries for X atoms"""
+        for patm in reversed(atoms):
+            self.coordinates = np.delete(self.coordinates, patm, 0) 
+            self.sitelabel.pop(patm)
+            self.nbonds.pop(patm)
+            self.bonding.pop(patm)
 
+        self.connect = coord_matrix(self.sitelabel, self.coordinates)[0]
+
+    def carboxylate_test(self, atom):
+        """Simple test for a carboxylate group"""
         oxcount = 0
         bondvector =[]
 
@@ -144,7 +161,7 @@ def coord_matrix(atom, coord):
     """
     generate a coordination matrix for a list of x,y,z coordinates
     """
-    connect = np.zeros((len(coord),len(coord)))
+    connect = np.matrix(np.zeros((len(coord),len(coord))))
     bonding = []
     numbonds = []
     for i in range(len(coord)):
@@ -178,14 +195,15 @@ def bond_tolerance(atom1, atom2):
         return 1.6
 
 def length(coord1, coord2):
+    """ returns the length between two vectors"""
     vector = coord2 - coord1
     return np.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + 
-                      vector[2] * vector[2])
+                   vector[2] * vector[2])
 
 def align(coords, alignvect, alignpt, statvect, statpt):
     """
     align two vectors and adjust the coordinates
-    This is dnoe by an axis-angle rotation then a shift
+    This is done by an axis-angle rotation then a shift
     """
 
     # the order of the cross product is important to 
@@ -257,29 +275,99 @@ def rotation_matrix(axis, angle):
 
     return matrix
 
+def planar_test(coordinates):
+    """
+    Tests whether four or more points are within a plane.
+    You can run the test for fewer coordinates
+    but you should note that you might be mentally
+    handicapped if you do so.
+    """
+
+    # Define a plane by three points
+    planevector1 = normalize(coordinates[1] - coordinates[0])
+
+    if(np.allclose(sum(planevector1),0.)):
+        # TODO(pboyd): raise error, two atoms are in the exact same position
+        pass    
+    # test points for colinearity with the first vector
+    for coord in coordinates[2:]:
+        if(not linear_test(array([coordinates[0],coordinates[1],coord]))):
+            planevector2 = normalize(coord - coordinates[0])
+            break
+
+    # test to see if planevector2 is allocated (if there is a plane
+    # within the coordinates) otherwise co-linear
+    try:
+        planevector2
+    except:
+        return False
+
+    for coord in coordinates[2:]:
+       # If not colinear test for planarity
+        newvect = normalize(coord - coordinates[0])
+
+        # test = 0 if co-planar
+        test = np.inner(newvect, np.cross(planevector1, planevector2))
+        # the tolerance is quite low, this has to do with the number
+        # of sig. figs. of the training set.
+        if (not np.allclose(0., test, atol=1e-2)):
+            return False
+    
+    return True
+        
+
+def normalize(vector):
+    """changes vector length to unity"""
+    return vector / np.dot(vector, vector)
+
+def linear_test(coordinates):
+    """
+    Tests for three or more points lying within the same
+    line.  You can perform this test for fewer points,
+    but you should note that you might be mentally
+    handicapped if you do so.
+    """
+    
+    # test by cross-product.  If linear should be the zero vector
+    vector1 = normalize(coordinates[1] - coordinates[0])
+
+    for point in coordinates[2:]:
+        vector2 = normalize(point - coordinates[0])
+        crossprod = np.cross(vector2,vector1)
+        if np.allclose(crossprod, np.zeros(3), atol=1e-2):
+            return True
+
+    return False
+
+
 def write_xyz(label, atoms, coords):
     xyzfile = open('%s.xyz' % label, 'w')
     xyzfile.write('%i\ncoordinate dump\n'% len(coords))
     for i in range(len(coords)):
         xyzfile.write('%s%12.5f%12.5f%12.5f\n' % (atoms[i],
                 coords[i][0], coords[i][1], coords[i][2]) )
-    
+
 def main():
     """Default if run as an executable"""
 
     linkr = SBU("BTC", sample.atom_labels[0], sample.atom_coordinates[0])
     metal = SBU("Zn", sample.atom_labels[1], sample.atom_coordinates[1])
 
+    benzene = SBU("Benzene", sample.atom_labels[2], 
+                  sample.atom_coordinates[2])
+    anthracene = SBU("Anthracene", sample.atom_labels[3],
+                     sample.atom_coordinates[3])
+    phosphate = SBU("Phosphate", sample.atom_labels[4],
+                     sample.atom_coordinates[4])
+
     # TODO(pboyd): add random choice of link and match metal with linker
 
-    # as a test add 5 BTC groups to the metal
-
     for i in range(len(metal.links)):
-        testings = align(linkr.coordinates, linkr.links[0],
-                     linkr.bondpoints[0], -1*metal.links[i],
+        testings = align(phosphate.coordinates, phosphate.links[0],
+                     phosphate.bondpoints[0], -1*metal.links[i],
                      metal.bondpoints[i])
-        write_xyz("rotation_test%s"%str(i), linkr.sitelabel, testings)
-    write_xyz("original", linkr.sitelabel, linkr.coordinates)
+        write_xyz("rotation_test%s"%str(i), phosphate.sitelabel, testings)
+    write_xyz("original", phosphate.sitelabel, phosphate.coordinates)
     write_xyz("metal", metal.sitelabel, metal.coordinates)
 
 if __name__ == '__main__':
