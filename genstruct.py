@@ -12,30 +12,38 @@ import numpy as np
 from numpy import array
 from elements import WEIGHT, ATOMIC_NUMBER
 import sample
+from random import random, uniform, randrange, choice
 
 class SBU(object):
     """
     """
 
-    def __init__(self, type, sitelabel, coordinates):
+    def __init__(self, type, atomlabel, coordinates, ismetal=None):
         self.type = type
-        self.sitelabel = sitelabel
-
-        # TODO(pboyd): shift the coordinates by the COM such that
-        # they are centred at the origin
+        self.atomlabel = atomlabel
         self.coordinates = array(coordinates)
         self.mass = 0. 
-        self.numb = 0 
         self.connect = []
         self.nbonds = [] 
         self.bonding = []
         self.unsat = []
-        self.links = []
-        self.bondpoints = []
+        # vectors of connection points for SBU
+        self.connect_vector = []
+        # terminal points of connecting vectors for SBU
+        self.connectpoints = []
+        # keeping track of which connecting points are bonded
+        self.connectivity = []
+
+        # Default metal
+        if ismetal is not None:
+            self.ismetal = ismetal
+        else:
+            self.ismetal = True
+
         # populate arrays
         # structcalc is a tuple of important connectivity information
         # of the linker
-        structcalc = coord_matrix(self.sitelabel, self.coordinates)
+        structcalc = coord_matrix(self.atomlabel, self.coordinates)
         self.connect = structcalc[0]
         self.bonding = structcalc[1]
         self.nbonds = structcalc[2]
@@ -46,12 +54,12 @@ class SBU(object):
         # shift all coordinates back by the centre of mass
         self.COM_shift()
 
-        # check unsaturated bonds for possible links
+        # check unsaturated bonds for possible connect_vector
         self.check_unsat()
 
         # add linking points to the SBU.
         # TODO(pboyd): add possible linking types
-        self.add_links()
+        self.add_connect_vector()
 
 
     def check_unsat(self):
@@ -61,18 +69,18 @@ class SBU(object):
         unsat = []
         # need to improve robustness of this code
         for i in range(len(self.nbonds)):
-            if ((self.nbonds[i] <= 2)and(self.sitelabel[i] != "H")and
-                (self.sitelabel[i] != "X")):
+            if ((self.nbonds[i] <= 2)and(self.atomlabel[i] != "H")and
+                (self.atomlabel[i] != "X")):
                 unsat.append(i)
         self.unsat = unsat
 
-    def add_links(self):
+    def add_connect_vector(self):
         """
-        checks for certain unsaturated atoms and adds links accordingly
+        checks for certain unsaturated atoms and adds connect_vector accordingly
         """
 
         purgeatoms = []
-        for indx, atom in enumerate(self.sitelabel):
+        for indx, atom in enumerate(self.atomlabel):
             # test for carboxylate
             if atom == "C":
                 carb_test = self.carboxylate_test(indx)
@@ -82,36 +90,38 @@ class SBU(object):
                     vect = carb_test[1][0] + carb_test[1][1] \
                            - 2 * self.coordinates[indx]
 
-                    self.bondpoints.append(pt)
-                    self.links.append(vect)
+                    self.connectpoints.append(pt)
+                    self.connect_vector.append(vect)
+                    self.connectivity.append(0)
             # test for "X" atoms (considered a linking point)
             elif atom == "X":
-                self.bondpoints.append(self.coordinates[indx])
+                self.connectpoints.append(self.coordinates[indx])
                 # there should only be one bonding atom to an "X"
                 bondatm = self.bonding[indx][0]
                 vect = self.coordinates[indx] - self.coordinates[bondatm]
-                self.links.append(vect)
+                self.connect_vector.append(vect)
+                self.connectivity.append(0)
                 purgeatoms.append(indx)
 
             # TODO(pboyd): add other tests for different 
             # coordinating atoms
 
         # purge any coordinates in self.coordinates belonging to "X"'s
-        # as they are now part of self.links and self.bonding
+        # as they are now part of self.connect_vector and self.connectpoints
         self.purge(purgeatoms)
 
-        self.links = array(self.links)
-        self.bondpoints = array(self.bondpoints)
+        self.connect_vector = array(self.connect_vector)
+        self.connectpoints = array(self.connectpoints)
 
     def purge(self, atoms):
         """Remove entries for X atoms"""
         for patm in reversed(atoms):
             self.coordinates = np.delete(self.coordinates, patm, 0) 
-            self.sitelabel.pop(patm)
+            self.atomlabel.pop(patm)
             self.nbonds.pop(patm)
             self.bonding.pop(patm)
 
-        self.connect = coord_matrix(self.sitelabel, self.coordinates)[0]
+        self.connect = coord_matrix(self.atomlabel, self.coordinates)[0]
 
     def carboxylate_test(self, atom):
         """Simple test for a carboxylate group"""
@@ -119,7 +129,7 @@ class SBU(object):
         bondvector =[]
 
         for iatm in self.bonding[atom]:
-            if (self.sitelabel[iatm] == "O") and (iatm in self.unsat):
+            if (self.atomlabel[iatm] == "O") and (iatm in self.unsat):
                 oxcount += 1
                 bondvector.append(self.coordinates[iatm])
 
@@ -142,9 +152,9 @@ class SBU(object):
         top = 0.
         bottom = 0.
 
-        for i in range(len(self.sitelabel)):
-            top += self.coordinates[i] * WEIGHT[self.sitelabel[i]]
-            bottom += WEIGHT[self.sitelabel[i]]
+        for i in range(len(self.atomlabel)):
+            top += self.coordinates[i] * WEIGHT[self.atomlabel[i]]
+            bottom += WEIGHT[self.atomlabel[i]]
         self.mass = bottom
         return top / bottom
 
@@ -156,6 +166,37 @@ class SBU(object):
         """
         for icoord, xyz in enumerate(self.coordinates):
             self.coordinates[icoord] = xyz - self.COM
+
+    def align(self, ibond, statvect, statpt):
+        """
+        align two vectors and adjust the coordinates
+        This is done by an axis-angle rotation then a shift
+        """
+
+        # the order of the cross product is important to 
+        # signify which vector remains stationary (statvect)
+        # and which will rotate.  This axis will determine the
+        # proper rotation when applying the rotation matrix
+        axis = rotation_axis(statvect, self.connect_vector[ibond])
+
+        angle = calc_angle(statvect, self.connect_vector[ibond])
+
+        # Transformation matrix for rotation
+        transform = rotation_matrix(axis, angle)
+
+        # shift bonding information by the rotation matrix and shift vectors
+        self.connect_vector = array(self.connect_vector * transform)
+        self.connectpoints = array(self.connectpoints * transform)
+        # shiftvector is found after initial rotation of the bond vectors
+        # and bond points
+        shiftvector = (statpt) - (self.connectpoints[ibond] - self.connect_vector[ibond])
+        # bond points are then shifted by the shiftvector
+        self.connectpoints += shiftvector
+
+        # coordinate rotation and translation
+        self.coordinates = array(self.coordinates * transform)
+        self.coordinates += shiftvector
+
 
 def coord_matrix(atom, coord):
     """
@@ -200,46 +241,12 @@ def length(coord1, coord2):
     return np.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + 
                    vector[2] * vector[2])
 
-def align(coords, alignvect, alignpt, statvect, statpt):
-    """
-    align two vectors and adjust the coordinates
-    This is done by an axis-angle rotation then a shift
-    """
-
-    # the order of the cross product is important to 
-    # signify which vector remains stationary (statvect)
-    # and which will rotate.  This axis will determine the
-    # proper rotation when applying the rotation matrix
-
-    axis = np.cross(statvect, alignvect)
-    axis = axis / np.sqrt(np.dot(axis, axis))
-
-    angle = calc_angle(statvect, alignvect)
-
-    # Transformation matrix for rotation
-    transform = rotation_matrix(axis, angle)
-
-    # array of shifted coordinates
-    shiftcoords = np.zeros((len(coords),3))
-
-    # shift the alignment vector by the rotation matrix
-    alignvect = array(alignvect * transform)[0]
-    alignpt = array(alignpt * transform)[0]
-    shiftvector = (statpt) - (alignpt - alignvect)
-
-    for ixyz, cart in enumerate(coords):
-        shiftcoords[ixyz] = array(cart * transform)[0]
-        shiftcoords[ixyz] = shiftcoords[ixyz] + shiftvector
-
-    return shiftcoords
-
 
 def rotation_axis(vect1, vect2):
     """
     axis of rotation for two vectors (90 degrees from both)
     """
-    non_norm = np.cross(vect1, vect2)
-    return non_norm / np.sqrt(np.dot(non_norm, non_norm))
+    return normalize(np.cross(vect1, vect2))
 
 def calc_angle(vect1, vect2):
     """ determines angle between vector1 and vector2"""
@@ -318,7 +325,7 @@ def planar_test(coordinates):
 
 def normalize(vector):
     """changes vector length to unity"""
-    return vector / np.dot(vector, vector)
+    return vector / np.sqrt(np.dot(vector, vector))
 
 def linear_test(coordinates):
     """
@@ -339,36 +346,115 @@ def linear_test(coordinates):
 
     return False
 
+def build():
+    """Randomly builds MOF with metals and linkers"""
+
+    organic = SBU("BTC", sample.atom_labels[0][:], 
+            sample.atom_coordinates[0][:], False)
+
+    benzene = SBU("Benzene", sample.atom_labels[2][:], 
+            sample.atom_coordinates[2][:], False)
+
+    anthracene = SBU("Anthracene", sample.atom_labels[3][:],
+            sample.atom_coordinates[3][:], False)
+
+    phosphate = SBU("Phosphate", sample.atom_labels[4][:],
+            sample.atom_coordinates[4][:], False)
+
+    # Create an initial instance of metal
+    # more instances will be created as the system gets
+    # bigger.
+
+    structure = [SBU("Zn", sample.atom_labels[1][:], 
+        sample.atom_coordinates[1][:])]
+
+    count = 0
+    done = False
+    while not done:
+        count += 1 
+        # chose a random SBU
+        irand = randrange(len(structure))
+
+        # check for unsaturated connection points
+        bondchoice = []
+        for itbond, bonded in enumerate(structure[irand].connectivity):
+            if not bonded:
+                bondchoice.append(itbond)
+        # chose bond to mess with
+        bondrand = choice(bondchoice)
+        structure[irand].connectivity[bondrand] = 1
+
+        link = structure[irand].connect_vector[bondrand] * -1.
+        point = structure[irand].connectpoints[bondrand]
+
+        if structure[irand].ismetal:
+            # add organic linker to the metal link[irand]
+            iorg = len(structure)
+
+            structure.append(SBU("BTC", sample.atom_labels[0][:],
+                             sample.atom_coordinates[0][:], False))
+
+            # randomly chose the linker bond to attach to the metal
+            jrand = randrange(len(structure[iorg].connect_vector))
+
+            structure[iorg].connectivity[jrand] = 1
+            structure[iorg].align(jrand, link, point)
+
+        else:
+            # add metal corner to the organic link[irand]
+            imet = len(structure)
+
+            structure.append(SBU("Zn", sample.atom_labels[1][:],
+                sample.atom_coordinates[1][:]))
+
+            # randomly chose the linker bond to attach to the metal
+            jrand = randrange(len(structure[imet].connect_vector))
+
+            structure[imet].connectivity[jrand] = 1
+            structure[imet].align(jrand, link, point)
+
+        if count == 5:
+            done = True
+
+    # TODO(pboyd): need to implement rotations around the connection 
+    # site
+    # TODO(pboyd): assign a bond length to the connection site, track
+    # which metals are bonded to which organic linkers (for larger 
+    # molecular rotations?)
+    # TODO(pboyd): implement a periodic boundary test
+    # TODO(pboyd): implement a test for a fully saturated system
+    # TODO(pboyd): scan for atom - atom overlap
+
+    dump = coordinate_dump(structure)
+
+    write_xyz("RANDOM", dump[1], dump[0])
 
 def write_xyz(label, atoms, coords):
     xyzfile = open('%s.xyz' % label, 'w')
     xyzfile.write('%i\ncoordinate dump\n'% len(coords))
     for i in range(len(coords)):
         xyzfile.write('%s%12.5f%12.5f%12.5f\n' % (atoms[i],
-                coords[i][0], coords[i][1], coords[i][2]) )
+                      coords[i][0], coords[i][1], coords[i][2]))
+
+def coordinate_dump(structure):
+    """ 
+    Dumps all the atom labels and xyz coordinates from a list
+    of classes"""
+
+    coords = []
+    atoms = []
+
+    for itstruct in range(len(structure)):
+        for itsite in range(len(structure[itstruct].coordinates)):
+            coords.append(structure[itstruct].coordinates[itsite])
+            atoms.append(structure[itstruct].atomlabel[itsite])
+
+    return (array(coords), atoms)
 
 def main():
     """Default if run as an executable"""
 
-    linkr = SBU("BTC", sample.atom_labels[0], sample.atom_coordinates[0])
-    metal = SBU("Zn", sample.atom_labels[1], sample.atom_coordinates[1])
-
-    benzene = SBU("Benzene", sample.atom_labels[2], 
-                  sample.atom_coordinates[2])
-    anthracene = SBU("Anthracene", sample.atom_labels[3],
-                     sample.atom_coordinates[3])
-    phosphate = SBU("Phosphate", sample.atom_labels[4],
-                     sample.atom_coordinates[4])
-
-    # TODO(pboyd): add random choice of link and match metal with linker
-
-    for i in range(len(metal.links)):
-        testings = align(phosphate.coordinates, phosphate.links[0],
-                     phosphate.bondpoints[0], -1*metal.links[i],
-                     metal.bondpoints[i])
-        write_xyz("rotation_test%s"%str(i), phosphate.sitelabel, testings)
-    write_xyz("original", phosphate.sitelabel, phosphate.coordinates)
-    write_xyz("metal", metal.sitelabel, metal.coordinates)
+    build()
 
 if __name__ == '__main__':
     main()
