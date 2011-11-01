@@ -92,7 +92,7 @@ class SBU(object):
 
                     self.connectpoints.append(pt)
                     self.connect_vector.append(vect)
-                    self.connectivity.append(0)
+                    self.connectivity.append(None)
             # test for "X" atoms (considered a linking point)
             elif atom == "X":
                 self.connectpoints.append(self.coordinates[indx])
@@ -100,7 +100,7 @@ class SBU(object):
                 bondatm = self.bonding[indx][0]
                 vect = self.coordinates[indx] - self.coordinates[bondatm]
                 self.connect_vector.append(vect)
-                self.connectivity.append(0)
+                self.connectivity.append(None)
                 purgeatoms.append(indx)
 
             # TODO(pboyd): add other tests for different 
@@ -335,7 +335,7 @@ def linear_test(coordinates):
     handicapped if you do so.
     """
     
-    # test by cross-product.  If linear should be the zero vector
+    # test by cross-product.  If linear, should be the zero vector
     vector1 = normalize(coordinates[1] - coordinates[0])
 
     for point in coordinates[2:]:
@@ -345,6 +345,77 @@ def linear_test(coordinates):
             return True
 
     return False
+
+def rotation(rotbond, rotstruct, structure):
+    """
+    Takes a growing structure and rotates the coordinates
+    about a selected bond.  If other SBU's are attached
+    to the structure, they are rotated too unless they 
+    connect to the stationary SBU.
+    This only applies to linkers with a single bond to the 
+    SBU - bidentate bonds must have other considerations
+    """
+
+    axis = normalize(structure[rotstruct].connect_vector[rotbond])
+
+    # random rotation for now...
+    angle = uniform(0,2*np.pi)
+
+    R = rotation_matrix(axis, angle)
+
+    # find out what the stationary SBU is
+    stat_SBU = structure[rotstruct].connectivity[rotbond]
+
+    # correction for rotation about the origin
+    # c * (I - R)
+    c = structure[rotstruct].connectpoints[rotbond] + \
+            structure[rotstruct].connect_vector[rotbond]
+
+    C = array(c * (np.identity(3) - R))
+
+    # recursive scan of all connecting SBUs, if they connect back to 
+    # the stat_SBU, do not perform a rotation.
+
+    dir = []
+    dir = recurse_bonds(rotstruct,[stat_SBU],stat_SBU,structure)
+    dir.append(rotstruct)
+
+    # apply rotation to the SBUs listed in dir
+    for i in dir:
+        structure[i].coordinates = \
+                array(structure[i].coordinates * R) + C
+        structure[i].connect_vector = \
+                array(structure[i].connect_vector * R) + C
+        structure[i].connectpoints = \
+                array(structure[i].connectpoints * R) + C
+
+
+def recurse_bonds(bond, frombond, xbond, structure):
+    """
+    Returns a list of indices of all bonded SBUs and their bonded
+    SBUs and so on..
+
+    entries are as follows:
+    [branching point SBU, the SBU one level up the tree, 
+    the termination SBU, the list of SBUs]
+    """
+    # FIXME(pboyd): not fully convinced this works properly
+    if not structure[bond].connectivity:
+        return
+
+    # frombond stores a list of SBUs already included in the bonding.
+    # this is such that the recursion list doesn't repeat itself with
+    # loops
+    r = []
+    frombond.append(bond)
+    for i in structure[bond].connectivity:
+        # TODO(pboyd): check for bonding to the xbond (if this happens,
+        # kill the recursion and the rotation)
+        if (i is not None)and(i not in frombond)and(i is not xbond):
+            r.append(i)
+            for tmp in recurse_bonds(i, frombond, xbond, structure):
+                r.append(tmp)
+    return r
 
 def build():
     """Randomly builds MOF with metals and linkers"""
@@ -373,22 +444,33 @@ def build():
     while not done:
         count += 1 
         # chose a random SBU
-        irand = randrange(len(structure))
+        randchoice = randrange(len(structure))
 
         # check for unsaturated connection points
         bondchoice = []
-        for itbond, bonded in enumerate(structure[irand].connectivity):
-            if not bonded:
+        for itbond, bonded in enumerate(
+                structure[randchoice].connectivity):
+            if bonded is None:
                 bondchoice.append(itbond)
+
+        # check if the SBU is fully saturated
+        if bondchoice == []:
+            # TODO(pboyd): include while loop to make sure we select
+            # an unsaturated molecule
+            pass
         # chose bond to mess with
-        bondrand = choice(bondchoice)
-        structure[irand].connectivity[bondrand] = 1
+        else:
+            bondrand = choice(bondchoice)
 
-        link = structure[irand].connect_vector[bondrand] * -1.
-        point = structure[irand].connectpoints[bondrand]
+        # the value of the connectivity of the nth bond is
+        # the index of the added structure
+        structure[randchoice].connectivity[bondrand] = len(structure) 
 
-        if structure[irand].ismetal:
-            # add organic linker to the metal link[irand]
+        link = structure[randchoice].connect_vector[bondrand] * -1.
+        point = structure[randchoice].connectpoints[bondrand]
+
+        if structure[randchoice].ismetal:
+            # add organic linker to the metal link[randchoice]
             iorg = len(structure)
 
             structure.append(SBU("BTC", sample.atom_labels[0][:],
@@ -397,27 +479,41 @@ def build():
             # randomly chose the linker bond to attach to the metal
             jrand = randrange(len(structure[iorg].connect_vector))
 
-            structure[iorg].connectivity[jrand] = 1
+            structure[iorg].connectivity[jrand] = randchoice 
             structure[iorg].align(jrand, link, point)
 
         else:
-            # add metal corner to the organic link[irand]
+            # add metal corner to the organic link[randchoice]
             imet = len(structure)
 
             structure.append(SBU("Zn", sample.atom_labels[1][:],
                 sample.atom_coordinates[1][:]))
 
-            # randomly chose the linker bond to attach to the metal
+            # randomly chose the linker bond to attach to the organic
+            # linker 
             jrand = randrange(len(structure[imet].connect_vector))
 
-            structure[imet].connectivity[jrand] = 1
+            structure[imet].connectivity[jrand] = randchoice
             structure[imet].align(jrand, link, point)
 
         if count == 5:
             done = True
 
-    # TODO(pboyd): need to implement rotations around the connection 
-    # site
+    dump = coordinate_dump(structure)
+
+    write_xyz("RANDOM", dump[1], dump[0])
+
+    # call a random rotation
+    randrot = randrange(0, len(structure))
+
+    s = []
+    for k, ibond in enumerate(structure[randrot].connectivity):
+        if ibond is not None:
+            s.append(k)
+
+    randbond = choice(s)
+    rotation(randbond, randrot, structure)
+
     # TODO(pboyd): assign a bond length to the connection site, track
     # which metals are bonded to which organic linkers (for larger 
     # molecular rotations?)
@@ -427,7 +523,7 @@ def build():
 
     dump = coordinate_dump(structure)
 
-    write_xyz("RANDOM", dump[1], dump[0])
+    write_xyz("RANDOM_ROT", dump[1], dump[0])
 
 def write_xyz(label, atoms, coords):
     xyzfile = open('%s.xyz' % label, 'w')
@@ -454,6 +550,7 @@ def coordinate_dump(structure):
 def main():
     """Default if run as an executable"""
 
+    # TODO(pboyd): write all actions out to a log.
     build()
 
 if __name__ == '__main__':
