@@ -32,7 +32,6 @@ class SBU(object):
         self.bonding = []
         self.unsat = []
         # bond distance for connection points of SBU
-        # temporarily set to 4 angstroms
         self.bonddist = 2.
         # vectors of connection points for SBU
         self.connect_vector = []
@@ -208,6 +207,277 @@ class SBU(object):
         self.coordinates += shiftvector
 
 
+class Structure(object):
+    """
+    Structure contains all the machinery necessary to build a MOF from
+    simple organic and metallic building units
+
+    """
+ 
+    def __init__(self):
+        self.cell = np.zeros((3,3))
+        # the list mof keeps track of all the SBUs
+        self.mof = []
+        # initialize logging for this MOF
+        self.log = bookkeeping.Log()
+
+    def build(self):
+       """Randomly builds MOF with metals and linkers"""
+    
+       BTC = SBU("BTC", sample.atom_labels[0][:], 
+               sample.atom_coordinates[0][:], False)
+    
+       benzene = SBU("Benzene", sample.atom_labels[2][:], 
+               sample.atom_coordinates[2][:], False)
+    
+       anthracene = SBU("Anthracene", sample.atom_labels[3][:],
+               sample.atom_coordinates[3][:], False)
+    
+       phosphate = SBU("Phosphate", sample.atom_labels[4][:],
+               sample.atom_coordinates[4][:], False)
+    
+       # Create an initial instance of metal
+       # more instances will be created as the system gets
+       # bigger.
+    
+       self.mof = [SBU("Zn", sample.atom_labels[1][:], 
+           sample.atom_coordinates[1][:])]
+    
+       count = 0
+       done = False
+       while not done:
+           count += 1
+          
+           valid_selection = False
+           while not valid_selection:
+               # chose a random SBU
+               randchoice = randrange(len(self.mof))
+               # check for unsaturated connection points
+               bondchoice = []
+               for itbond, bonded in enumerate(
+                   self.mof[randchoice].connectivity):
+                   if bonded is None:
+                       bondchoice.append(itbond)
+                       valid_selection = True
+    
+           # chose bond to mess with
+           bondrand = choice(bondchoice)
+           # the value of the connectivity of the nth bond is
+           # the index of the added structure
+           self.mof[randchoice].connectivity[bondrand] = len(self.mof) 
+    
+           link = self.mof[randchoice].connect_vector[bondrand] * -1.
+           point = self.mof[randchoice].connectpoints[bondrand]
+           inew = len(self.mof)
+    
+           if self.mof[randchoice].ismetal:
+               # add organic linker to the metal link[randchoice]
+               self.mof.append(SBU("benzene", sample.atom_labels[2][:],
+                   sample.atom_coordinates[2][:], False))
+           else:
+               # add metal corner to the organic link[randchoice]
+               self.mof.append(SBU("Zn", sample.atom_labels[1][:],
+                   sample.atom_coordinates[1][:]))
+    
+           # randomly chose the linker bond to attach to the metal
+           jrand = randrange(len(self.mof[inew].connect_vector))
+           self.log.info("added %s bond %i to SBU %i, %s bond %i"
+                   %(self.mof[inew].type, bondrand, randchoice,
+                     self.mof[randchoice].type, jrand))
+           self.mof[inew].connectivity[jrand] = randchoice 
+           self.mof[inew].align(jrand, link, point)
+    
+           bad_positioning = True
+           while (bad_positioning):
+               # check for atom overlap of the new structure
+               if self.overlap(inew):
+                   self.rotation(jrand, inew)
+               else:
+                   bad_positioning = False
+    
+           #scan for potential periodic boundaries
+           for ind, bonded in enumerate(self.mof[inew].connectivity):
+               if bonded is None:
+                   self.pbc_test(inew, ind)
+    
+           # perform a random rotation about a random bond of a random
+           # SBU
+           # self.random_rot()
+    
+           if count == 5:
+               done = True
+    
+       dump = coordinate_dump(self.mof)
+    
+       write_xyz("RANDOM", dump[1], dump[0])
+    
+       # TODO(pboyd): assign a bond length to the connection site, track
+       # which metals are bonded to which organic linkers (for larger 
+       # molecular rotations?)
+       # TODO(pboyd): implement a test for a fully saturated system
+    
+    def random_rot(self):
+       """Randomly choses an SBU and rotates it recursively"""
+       randrot = randrange(0, len(self.mof))
+       s = []
+       for k, ibond in enumerate(self.mof[randrot].connectivity):
+           if ibond is not None:
+               s.append(k)
+       randbond = choice(s)
+       self.rotation(randbond, randrot)
+    
+    
+    def overlap(self, istruct):
+       """
+       checks if one of the SBUs in structure (istruct) is
+       overlapping with the other SBUs
+       """
+       # distance tolerance in angstroms
+       disttol = 3.
+    
+       overlapping = False
+       for nxyz, xyz in enumerate(self.mof[istruct].coordinates):
+           exclrange = range(len(self.mof))
+           exclrange.remove(istruct)
+           for struct in exclrange:
+               for ncoord,coords in enumerate(self.mof[struct].coordinates):
+                   if (length(xyz, coords) <= disttol):
+                       overlapping = True
+                       self.log.info("overlap found between structure %i atom %i and structure %i atom %i"
+                                %(istruct, nxyz, struct, ncoord))
+
+    def rotation(self, rotbond, rotstruct):
+       """
+       Takes a growing structure and rotates the coordinates
+       about a selected bond.  If other SBU's are attached
+       to the structure, they are rotated too unless they 
+       connect to the stationary SBU.
+       This only applies to linkers with a single bond to the 
+       SBU - bidentate bonds must have other considerations
+       """
+    
+       axis = normalize(self.mof[rotstruct].connect_vector[rotbond])
+    
+       # random rotation for now...
+       angle = uniform(0,np.pi)
+    
+       R = rotation_matrix(axis, angle)
+    
+       # find out what the stationary SBU is
+       stat_SBU = self.mof[rotstruct].connectivity[rotbond]
+    
+       # correction for rotation about the origin
+       # c * (I - R)
+       c = self.mof[rotstruct].connectpoints[rotbond] + \
+               self.mof[rotstruct].connect_vector[rotbond]
+    
+       C = array(c * (np.identity(3) - R))
+    
+       # recursive scan of all connecting SBUs, if they connect back to 
+       # the stat_SBU, do not perform a rotation.
+       # FIXME(pboyd): this doesn't work
+    
+       dir = []
+       dir = self.recurse_bonds(rotstruct,[stat_SBU],stat_SBU)
+       dir.append(rotstruct)
+    
+       # apply rotation to the SBUs listed in dir
+       for i in dir:
+           self.mof[i].coordinates = \
+                   array(self.mof[i].coordinates * R) + C
+           self.mof[i].connect_vector = \
+                   array(self.mof[i].connect_vector * R) + C
+           self.mof[i].connectpoints = \
+                   array(self.mof[i].connectpoints * R) + C
+    
+    
+    def recurse_bonds(self, bond, frombond, xbond):
+       """
+       Returns a list of indices of all bonded SBUs and their bonded
+       SBUs and so on..
+    
+       entries are as follows:
+       [branching point SBU, the SBU one level up the tree, 
+       the termination SBU, the list of SBUs]
+       """
+       # FIXME(pboyd): not fully convinced this works properly
+       if not self.mof[bond].connectivity:
+           return
+    
+       # frombond stores a list of SBUs already included in the bonding.
+       # this is such that the recursion list doesn't repeat itself with
+       # loops
+       r = []
+       frombond.append(bond)
+       for i in self.mof[bond].connectivity:
+           # TODO(pboyd): check for bonding to the xbond (if this happens,
+           # kill the recursion and the rotation)
+           if (i is not None)and(i not in frombond)and(i is not xbond):
+               r.append(i)
+               for tmp in self.recurse_bonds(i, frombond, xbond):
+                   r.append(tmp)
+       return r
+
+    def pbc_test(self, sbu_choice, bond_choice):
+       """
+       Tests an unsaturated bond for an antiparallel vector in the 
+       growing structure.  If such vector exists and is of the 
+       opposing linker type, then establish a periodic boundary
+       along their span.
+       """
+    
+       # vector to test
+       vector = self.mof[sbu_choice].connect_vector[bond_choice]
+
+       for nstr, itstruct in enumerate(self.mof):
+           for nbnd, itbond in enumerate(itstruct.connectivity):
+               if itbond is None:
+                   #check if anti-parallel with vector
+                   test_vect = itstruct.connect_vector[nbnd]
+                   if anti_parallel_test(vector, test_vect):
+                       self.log.info("aligned vectors found, checking for PBC")
+                       self.add_pbc(sbu_choice, bond_choice, 
+                               nstr, nbnd)
+    
+    def add_pbc(self, sbu1, bond1, sbu2, bond2):
+       """
+       adds a periodic boundary between two bonds of two 
+       different SBUs
+       """
+       tol = 1.e-5
+       # assume PBC box's origin is (0,0,0)
+    
+       vector = (self.mof[sbu1].connectpoints[bond1] -
+                 self.mof[sbu1].connect_vector[bond1]) - \
+                 self.mof[sbu2].connectpoints[bond2]
+    
+       
+       add_vector = True
+       # test for existing cell vectors
+       for k, icell in enumerate(self.cell):
+           cross = np.cross(normalize(vector),normalize(icell))
+           zerotest = np.allclose(sum(icell), 0., atol=tol)
+           crosstest = np.allclose(cross, np.zeros(3), atol=tol)
+           if (not zerotest) and (crosstest):
+                # Parallel vector exists
+                self.log.info("Parallel vector found")
+                add_vector = False
+       if add_vector:
+           for k, icell in enumerate(self.cell):
+               zerotest = np.allclose(sum(icell), 0., atol=tol)
+               if zerotest:
+                   cell[k] = vector[:]
+    
+    def complete_box(self, cell):
+       """Test to see if the full set of vectors are in place"""
+       tol = 1.e-3
+       volume = np.dot(np.cross(self.cell[0],self.cell[1]),
+                       self.cell[2])
+       if np.allclose(volume, 0., atol=tol):
+           return False
+       else:
+           return True
+
 def coord_matrix(atom, coord):
     """
     generate a coordination matrix for a list of x,y,z coordinates
@@ -356,138 +626,6 @@ def linear_test(coordinates):
 
     return False
 
-def rotation(rotbond, rotstruct, structure):
-    """
-    Takes a growing structure and rotates the coordinates
-    about a selected bond.  If other SBU's are attached
-    to the structure, they are rotated too unless they 
-    connect to the stationary SBU.
-    This only applies to linkers with a single bond to the 
-    SBU - bidentate bonds must have other considerations
-    """
-
-    axis = normalize(structure[rotstruct].connect_vector[rotbond])
-
-    # random rotation for now...
-    angle = uniform(0,np.pi)
-
-    R = rotation_matrix(axis, angle)
-
-    # find out what the stationary SBU is
-    stat_SBU = structure[rotstruct].connectivity[rotbond]
-
-    # correction for rotation about the origin
-    # c * (I - R)
-    c = structure[rotstruct].connectpoints[rotbond] + \
-            structure[rotstruct].connect_vector[rotbond]
-
-    C = array(c * (np.identity(3) - R))
-
-    # recursive scan of all connecting SBUs, if they connect back to 
-    # the stat_SBU, do not perform a rotation.
-
-    dir = []
-    dir = recurse_bonds(rotstruct,[stat_SBU],stat_SBU,structure)
-    dir.append(rotstruct)
-
-    # apply rotation to the SBUs listed in dir
-    for i in dir:
-        structure[i].coordinates = \
-                array(structure[i].coordinates * R) + C
-        structure[i].connect_vector = \
-                array(structure[i].connect_vector * R) + C
-        structure[i].connectpoints = \
-                array(structure[i].connectpoints * R) + C
-
-
-def recurse_bonds(bond, frombond, xbond, structure):
-    """
-    Returns a list of indices of all bonded SBUs and their bonded
-    SBUs and so on..
-
-    entries are as follows:
-    [branching point SBU, the SBU one level up the tree, 
-    the termination SBU, the list of SBUs]
-    """
-    # FIXME(pboyd): not fully convinced this works properly
-    if not structure[bond].connectivity:
-        return
-
-    # frombond stores a list of SBUs already included in the bonding.
-    # this is such that the recursion list doesn't repeat itself with
-    # loops
-    r = []
-    frombond.append(bond)
-    for i in structure[bond].connectivity:
-        # TODO(pboyd): check for bonding to the xbond (if this happens,
-        # kill the recursion and the rotation)
-        if (i is not None)and(i not in frombond)and(i is not xbond):
-            r.append(i)
-            for tmp in recurse_bonds(i, frombond, xbond, structure):
-                r.append(tmp)
-    return r
-
-def pbc_test(cell, sbu_choice, bond_choice, structure):
-    """
-    Tests an unsaturated bond for an antiparallel vector in the 
-    growing structure.  If such vector exists and is of the 
-    opposing linker type, then establish a periodic boundary
-    along their span.
-    """
-
-    # vector to test
-    vector = structure[sbu_choice].connect_vector[bond_choice]
-
-    for nstr, itstruct in enumerate(structure):
-        for nbnd, itbond in enumerate(itstruct.connectivity):
-            if itbond is None:
-                #check if anti-parallel with vector
-                test_vect = itstruct.connect_vector[nbnd]
-                if anti_parallel_test(vector, test_vect):
-#                    log.info("aligned vectors found, checking for PBC")
-                    add_pbc(cell, sbu_choice, bond_choice, 
-                            nstr, nbnd, structure)
-
-def add_pbc(cell, sbu1, bond1, sbu2, bond2, structure):
-    """
-    adds a periodic boundary between two bonds of two 
-    different SBUs
-    """
-    tol = 1.e-5
-    # assume PBC box's origin is (0,0,0)
-
-    vector = (structure[sbu1].connectpoints[bond1] -
-              structure[sbu1].connect_vector[bond1]) - \
-              structure[sbu2].connectpoints[bond2]
-
-    
-    add_vector = True
-    # test for existing cell vectors
-    for k, icell in enumerate(cell):
-        cross = np.cross(normalize(vector),normalize(icell))
-
-        zerotest = np.allclose(sum(icell), 0., atol=tol)
-        crosstest = np.allclose(cross, np.zeros(3), atol=tol)
-
-        if (not zerotest) and (crosstest):
-             # Parallel vector exists
-             log.info("Parallel vector found")
-             add_vector = False
-    if add_vector:
-        for k, icell in enumerate(cell):
-            zerotest = np.allclose(sum(icell), 0., atol=tol)
-
-            if zerotest:
-                cell[k] = vector[:]
-
-def complete_box(cell):
-    """Test to see if the full set of vectors are in place"""
-    tol = 1.e-3
-    volume = np.dot(np.cross(cell[0],cell[1]),cell[2])
-    if np.allclose(volume, 0., atol=tol):
-        return False
-    else:
-        return True
 
 def anti_parallel_test(vector1, vector2):
     """ test for two vectors being in anti-parallel orientations"""
@@ -502,135 +640,6 @@ def anti_parallel_test(vector1, vector2):
     else:
         return False
 
-def build():
-    """Randomly builds MOF with metals and linkers"""
-
-    BTC = SBU("BTC", sample.atom_labels[0][:], 
-            sample.atom_coordinates[0][:], False)
-
-    benzene = SBU("Benzene", sample.atom_labels[2][:], 
-            sample.atom_coordinates[2][:], False)
-
-    anthracene = SBU("Anthracene", sample.atom_labels[3][:],
-            sample.atom_coordinates[3][:], False)
-
-    phosphate = SBU("Phosphate", sample.atom_labels[4][:],
-            sample.atom_coordinates[4][:], False)
-
-    # Create an initial instance of metal
-    # more instances will be created as the system gets
-    # bigger.
-
-    log = bookkeeping.Log()
-
-    cell = np.zeros((3,3))
-
-    structure = [SBU("Zn", sample.atom_labels[1][:], 
-        sample.atom_coordinates[1][:])]
-
-    count = 0
-    done = False
-    while not done:
-        count += 1
-       
-        valid_selection = False
-        while not valid_selection:
-            # chose a random SBU
-            randchoice = randrange(len(structure))
-            # check for unsaturated connection points
-            bondchoice = []
-            for itbond, bonded in enumerate(
-                structure[randchoice].connectivity):
-                if bonded is None:
-                    bondchoice.append(itbond)
-                    valid_selection = True
-
-        # chose bond to mess with
-        bondrand = choice(bondchoice)
-        # the value of the connectivity of the nth bond is
-        # the index of the added structure
-        structure[randchoice].connectivity[bondrand] = len(structure) 
-
-        link = structure[randchoice].connect_vector[bondrand] * -1.
-        point = structure[randchoice].connectpoints[bondrand]
-        inew = len(structure)
-
-        if structure[randchoice].ismetal:
-            # add organic linker to the metal link[randchoice]
-            structure.append(SBU("benzene", sample.atom_labels[2][:],
-                sample.atom_coordinates[2][:], False))
-        else:
-            # add metal corner to the organic link[randchoice]
-            structure.append(SBU("Zn", sample.atom_labels[1][:],
-                sample.atom_coordinates[1][:]))
-
-        # randomly chose the linker bond to attach to the metal
-        jrand = randrange(len(structure[inew].connect_vector))
-        log.info("added %s bond %i to SBU %i, %s bond %i"
-                %(structure[inew].type, bondrand, randchoice,
-                  structure[randchoice].type, jrand))
-        structure[inew].connectivity[jrand] = randchoice 
-        structure[inew].align(jrand, link, point)
-
-        bad_positioning = True
-        while (bad_positioning):
-            # check for atom overlap of the new structure
-            if overlap(inew, structure):
-                rotation(jrand, inew, structure)
-            else:
-                bad_positioning = False
-
-        #scan for potential periodic boundaries
-        for ind, bonded in enumerate(structure[inew].connectivity):
-            if bonded is None:
-                pbc_test(cell, inew, ind, structure)
-
-        # perform a random rotation about a random bond of a random
-        # SBU
-#        random_rot(structure)
-
-        if count == 5:
-            done = True
-
-    dump = coordinate_dump(structure)
-
-    write_xyz("RANDOM", dump[1], dump[0])
-
-    # TODO(pboyd): assign a bond length to the connection site, track
-    # which metals are bonded to which organic linkers (for larger 
-    # molecular rotations?)
-    # TODO(pboyd): implement a test for a fully saturated system
-    # TODO(pboyd): scan for atom - atom overlap
-
-def random_rot(structure):
-    """Randomly choses an SBU and rotates it recursively"""
-    randrot = randrange(0, len(structure))
-    s = []
-    for k, ibond in enumerate(structure[randrot].connectivity):
-        if ibond is not None:
-            s.append(k)
-    randbond = choice(s)
-    rotation(randbond, randrot, structure)
-
-
-def overlap(istruct, structure):
-    """
-    checks if one of the SBUs in structure (istruct) is
-    overlapping with the other SBUs
-    """
-    # distance tolerance in angstroms
-    disttol = 3.
-
-    overlapping = False
-    for nxyz, xyz in enumerate(structure[istruct].coordinates):
-        exclrange = range(len(structure))
-        exclrange.remove(istruct)
-        for struct in exclrange:
-            for ncoord,coords in enumerate(structure[struct].coordinates):
-                if (length(xyz, coords) <= disttol):
-                    overlapping = True
-#                    log.info("overlap found between structure %i atom %i and structure %i atom %i"
-#                            %(istruct, nxyz, struct, ncoord))
 
 def write_xyz(label, atoms, coords):
     xyzfile = open('%s.xyz' % label, 'w')
@@ -657,8 +666,9 @@ def coordinate_dump(structure):
 def main():
     """Default if run as an executable"""
 
+    struct = Structure()
+    struct.build()
     # TODO(pboyd): write all actions out to a log.
-    build()
     # TODO(pboyd): make the MOF structure it's own class include 
     # functions such as rotation, overlap etc in this class
     # also add it's own reference to the Log class
