@@ -39,14 +39,12 @@ class Log:
                 datefmt='%m/%d/%Y %I:%M:%S %p')
         self.reduced_format = logging.Formatter(
                 '%(levelname)s: %(message)s')
-        
         self.message = logging.Formatter(
                 '%(message)s')
         
         # set up verbosity level
         self.console.setLevel(stdout_level)
         self.logfile.setLevel(file_level)
-        self.logger.setLevel(stdout_level)
 
         # initialize the format as time_format 
         self.console.setFormatter(self.time_format)
