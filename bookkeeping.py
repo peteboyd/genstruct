@@ -45,6 +45,7 @@ class Log:
         # set up verbosity level
         self.console.setLevel(stdout_level)
         self.logfile.setLevel(file_level)
+        self.logger.setLevel(stdout_level)
 
         # initialize the format as time_format 
         self.console.setFormatter(self.time_format)
