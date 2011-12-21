@@ -266,12 +266,60 @@ class Structure(object):
                 # TODO(pboyd): rotate the entire system such that
                 # the A cell vector points in the x cartesian axis
                 # and the B cell vector points in the xy plane
+                dump = coordinate_dump(self.mof)
+                write_xyz("RANDOM", dump[1], dump[0])
+                write_xyz("RANDOM",["C","atom_vector","C","atom_vector","C","atom_vector"],
+                        [np.zeros(3),self.cell[0],np.zeros(3),self.cell[1],np.zeros(3),self.cell[2]])
+                self.mof_reorient()
+                dump = coordinate_dump(self.mof)
+                write_xyz("RANDOM", dump[1], dump[0])
+                write_xyz("RANDOM",["C","atom_vector","C","atom_vector","C","atom_vector"],
+                        [np.zeros(3),self.cell[0],np.zeros(3),self.cell[1],np.zeros(3),self.cell[2]])
                 done = True
+                
 
         # dump framework into an xyz file
         dump = coordinate_dump(self.mof)
         write_xyz("RANDOM", dump[1], dump[0])
         write_pdb("RANDOM", dump[1], dump[0], self.acell)
+
+    def mof_reorient(self):
+        """
+        Re-orients the cell vectors and the coordinates such that the
+        first cell vector points in the x cartesian axis and the 
+        second cell vector points in the xy cartesian plane
+        """
+        xaxis = array([1.,0.,0.])
+        yaxis = array([0.,1.,0.])
+        # first rotation to the x-axis
+        x_rotangle = calc_angle(self.cell[0], xaxis)
+        x_rotaxis = rotation_axis(self.cell[0], xaxis)
+        R = rotation_matrix(x_rotaxis, x_rotangle)
+        self.cell = array(self.cell * R)
+        for sbu in self.mof:
+            sbu.coordinates = array(sbu.coordinates * R)
+            sbu.connect_vector = array(sbu.connect_vector * R)
+            sbu.anglevect = array(sbu.anglevect * R)
+            sbu.connectpoints = array(sbu.connectpoints * R)
+
+        # second rotation to the xy - plane
+        projx_b = self.cell[1] - project(self.cell[1], xaxis)
+        xy_rotangle = calc_angle(projx_b, yaxis)
+        xy_rotaxis = xaxis
+        R = rotation_matrix(xy_rotaxis, xy_rotangle)
+        # test to see if the rotation is in the right direction
+        testvect = array(projx_b * R)[0]
+        testangle = calc_angle(testvect, yaxis)
+        if not np.allclose(testangle, 0., atol = 1e-3):
+            R = rotation_matrix(-1.*xy_rotaxis, xy_rotangle)
+
+        self.cell = array(self.cell * R)
+        for sbu in self.mof:
+            sbu.coordinates = array(sbu.coordinates * R)
+            sbu.connect_vector = array(sbu.connect_vector * R)
+            sbu.anglevect = array(sbu.anglevect * R)
+            sbu.connectpoints = array(sbu.connectpoints * R)
+        return
 
     def increment(self, sbu, bond):
         """
@@ -353,8 +401,8 @@ class Structure(object):
         # joined by a periodic boundary
         cell_index = None
         if self.pointing_away(sbu1,bond1,sbu2,bond2):
-            bond_vector = self.mof[sbu2].connectpoints[bond2] - \
-                          self.mof[sbu1].connectpoints[bond1]
+            bond_vector = self.mof[sbu1].connectpoints[bond1] - \
+                          self.mof[sbu2].connectpoints[bond2]
             for pbc_ind, pbc_vector in enumerate(self.cell):
                 # 1st check: is there already a boundary(ies) which can
                 # bond these two vectors?
@@ -381,7 +429,6 @@ class Structure(object):
                 self.cell[cell_index] = bond_vector[:]
                 self.mof[sbu1].connectivity[bond1] = sbu2
                 self.mof[sbu2].connectivity[bond2] = sbu1
-                print self.cell[cell_index]
 
         return
 
@@ -472,19 +519,17 @@ class Structure(object):
                            sbu2.anglevect[bond2])
         # origin of rotation
         rotpoint = sbu2.centre_of_mass()
-        # rotation
-        self.sbu_rotation(sbu2, rotpoint, axis, angle)
 
+        # test to see if the rotation is in the right direction
+        R = rotation_matrix(axis, angle)
+        test_vect = array(sbu2.anglevect[bond2][:] * R)[0]
         test_angle = calc_angle(sbu1.anglevect[bond1],
-                           sbu2.anglevect[bond2])
+                           test_vect)
+        if not np.allclose(test_angle, 0., atol=1e-2):
+            axis = -1.*axis
 
-        if np.allclose(test_angle, 0., atol=1e-1):
-            pass
-        else:
-            self.sbu_rotation(sbu2, rotpoint, -1*axis, 2.*angle)
-
-        angle = calc_angle(sbu1.anglevect[bond1],
-                           sbu2.anglevect[bond2])
+        # rotation of SBU
+        self.sbu_rotation(sbu2, rotpoint, axis, angle)
 
     def sbu_align(self, sbu1, bond1, sbu2, bond2):
         """
@@ -669,6 +714,8 @@ def bond_tolerance(atom1, atom2):
 
     """
     # This function will need some elaboration
+    # TODO(pboyd): these conditions are not robust and
+    # should be changed when the code becomes bigger
     if("O" in [atom1,atom2])and("C" in [atom1,atom2]):
         return 1.6
     elif("Zn" in (atom1,atom2))and("X" in (atom1,atom2)):
@@ -679,8 +726,6 @@ def bond_tolerance(atom1, atom2):
         # temporary correction for carboxylate vector
         return 0.
     elif("X" in (atom1,atom2))and("C" in (atom1,atom2)):
-        # TODO(pboyd): these conditions are not robust and
-        # should be changed when the code becomes bigger
         return 2.6
     elif("Y" in (atom1,atom2))and("X" not in (atom1,atom2)):
         return 0.
@@ -702,7 +747,6 @@ def length(coord1, coord2=None):
     vector = coord2 - coord1
     return np.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + 
                    vector[2] * vector[2])
-
 
 def rotation_axis(vect1, vect2):
     """
@@ -844,7 +888,7 @@ def projection_test(vector1, vector2, tol=None):
     return False
 
 def project(vector1, vector2):
-    """ projects vector1 onto vector1, returns that vector"""
+    """ projects vector1 onto vector2, returns that vector"""
     angle = calc_angle(vector1, vector2)
     unit2 = normalize(vector2)
     return length(vector1) * np.cos(angle) * unit2
@@ -852,7 +896,7 @@ def project(vector1, vector2):
 def anti_parallel_test(vector1, vector2):
     """test for two vectors being in anti-parallel orientations"""
 
-    tol = 2.e-2
+    tol = 3.e-2
     vector1 = normalize(vector1)
     vector2 = normalize(vector2)
     test1 = np.allclose(np.cross(vector1, vector2), 
@@ -881,16 +925,16 @@ def write_pdb(label, atoms, coords, acell):
     pdbfile = open('%s.pdb' % label, 'w')
     today = date.today()
     lines = []
+    atomformat1 = "%-6s%5i %-4s %3s %1s%4i%s   "
+    atomformat2 = "%8.3f%8.3f%8.3f%6.2f%6.2f           %2s%2s\n"
     lines.append("%6s   Created: %s \n%-6s" % ('REMARK', 
-                  today.strftime("%A %d. %B %Y"), 'CRYST1'))
-    lines.append("%8.3f %8.3f %8.3f %6.2f %6.2f %6.2f P1\n"
+                  today.strftime("%A %d %B %Y"), 'CRYST1'))
+    lines.append("%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f P1\n"
                   % (tuple(acell)))
     for atom in range(len(atoms)):
-        lines.append("%-6s%4i %3s MOL%6i" %\
-                     ('ATOM', atom, atoms[atom], 1,) +\
-                     5*" " + "%8.3f %8.3f %8.3f  1.00  0.00 " 
-                     % tuple(coords[atom]) + \
-                     "%11s\n"%(atoms[atom]))
+        lines.append(atomformat1%('ATOM',atom+1,atoms[atom],"MOL","X",1," ") +
+                     atomformat2%(tuple(list(coords[atom])+[1.,0.,atoms[atom],0])))
+    lines.append("TER")
     pdbfile.writelines(lines)
     pdbfile.close()
 
