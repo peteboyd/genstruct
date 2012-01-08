@@ -10,7 +10,9 @@ import subprocess
 import textwrap
 import sys
 import math
+import re
 import numpy as np
+import copy
 from numpy import array
 from elements import WEIGHT, ATOMIC_NUMBER
 import sample
@@ -27,7 +29,7 @@ class SBU(object):
     """
 
     def __init__(self, type=None, atomlabel=None, coordinates=None,
-                 pdbfile=None, ismetal=None):
+                 pdbfile=None, xsdfile=None, ismetal=None):
         #self.log = bookkeeping.Log()
         if type is not None:
             self.type = type
@@ -39,14 +41,10 @@ class SBU(object):
         else:
             self.atomlabel = []
             self.coordinates = []
+        if xsdfile is not None:
+            self.from_xsd(xsdfile)
         if pdbfile is not None:
             self.from_pdb(pdbfile)
-            if coordinates is not None:
-                sys.exit(0)
-                #self.log.error("conflicting coordinate reference")
-            if atomlabel is not None:
-                sys.exit(0)
-                #self.log.error("conflicting atom reference")
         
         self.mass = 0. 
         # TODO(pboyd): change self.connect to something else
@@ -94,9 +92,9 @@ class SBU(object):
     def from_pdb(self, filename):
         """Reads atom coordinates of an SBU from a pdb file"""
 
+        filename = filename + ".pdb"
         pdbfile = open(filename)
         pdblines = pdbfile.readlines()
-        atmindex = 0
         for line in pdblines:
             if line.lower().startswith('atom'):
                 self.atomlabel.append(line[12:16].strip())
@@ -104,7 +102,29 @@ class SBU(object):
                     float(line[38:46]), float(line[47:54])]))
         pdbfile.close()
 
+    def from_xsd(self, filename):
+        """
+        Reads atom coordinates of an SBU from a Materials Studio .xsd
+        file.
+        """
+        filename = filename + ".xsd"
+        xsdfile = open(filename)
+        xsdlines = xsdfile.readlines()
+        xsdfile.close()
 
+        for line in xsdlines:
+            line = line.strip()
+            line = re.split("[<>=\"]", line)
+            line = [x for x in line if x]
+            if line[0].strip().lower() == "atom3d id":
+                for index, entry in enumerate(line):
+                    if entry.strip().lower() == "name":
+                        self.atomlabel.append(line[index+1].strip())
+                    elif entry.strip().lower() == "xyz":
+                        coord = line[index+1].strip().split(",")
+                        self.coordinates.append([float(x) for x in coord])
+
+        self.coordinates = array(self.coordinates)
     def check_unsat(self):
         """
         checking for unsaturated bonds
@@ -228,27 +248,29 @@ class Cell(object):
         # inverted cell
         self.icell = np.zeros((3,3))
         # index to keep track of number of vectors added
-        self.index = 0
+        self.index = -1
 
     def valid_vector(self, vect):
         """
         checks a vector against existing cell vectors
         """
-        if self.index > 1:
-            if self.plane_test(vect):
+        for i in range(self.index+1):
+            if self.line_test(i, vect):
+                print "parallel boundary vector exists!"
                 return False
-        if self.index > 0:
-            for pbc_ind, pbc_vector in enumerate(self.cell):
-                # 1st check: is there already a boundary in the same direction?
-                if pbc_ind < self.index and self.line_test(pbc_ind, vect):
-                    print "parallel boundary vector exists!"
-                    print pbc_vector, vect
-                    return False
+        if self.index == 1:
+            if self.plane_test(vect):
+                print "vector lies in the same plane!"
+                return False
+        if self.index == 2:
+            # This may change in the future, if changeable 
+            # periodic boundaries are considered.
+            return False
         return True
 
     def add_vector(self, vect):
-        self.cell[self.index] = vect
         self.index +=1
+        self.cell[self.index] = vect
 
     def plane_test(self, vector):
         """
@@ -257,13 +279,19 @@ class Cell(object):
         """
         return planar_test(array([np.zeros(3)]+[x for x in self.cell]+[vector]))
 
-    def line_test(self, icell, vector):
+    def line_test(self, icell, vector, tol=None):
         """
         Check to see if the vector is on the same line as other
         cell vectors.
         """
-        return linear_test(array([np.zeros(3)] + [self.cell[icell]] + [vector]), 0.5)
-
+        if tol is not None:
+            tol = tol
+        else:
+            tol = 1e-2
+        nvect = normalize(vector)
+        ncell = normalize(self.cell[icell])
+        xprod = cross(nvect,ncell)
+        return np.allclose(xprod, np.zeros(3), atol=tol)
 
     def invert_cell(self):
         """ get the inverted cell for pbc corrections"""
@@ -325,16 +353,30 @@ class Structure(object):
         self.pbc = Cell() 
         # the list mof keeps track of all the SBUs
         self.mof = []
+        self.metal_corner = None
+        self.organic_linker = None
         # initialize logging for this MOF
         self.log = bookkeeping.Log()
         # iterators for the sbu and it's connection point 
         self.sbuind, self.bondind = 0, 0
         # list to keep track of bonding via periodic boundaries
         self.boundary_connect = [[],[],[]]
+        self.sbu_selection()
+
+    def sbu_selection(self, i=None, j=None):
+        """
+        select SBU's for mof generation, this will eventually
+        be specified by an iteration sequence where the numbers 
+        i and j will be the designations for the SBUs
+        """
+        self.metal_corner = SBU(xsdfile="linear_Fe")
+        self.organic_linker = SBU("tet", xsdfile="tetrahedral",
+                                  ismetal=False)
+
     def build_one(self):
         """Adds one extra SBU to the growing MOF"""
         if len(self.mof) == 0:
-            self.mof = [SBU("Fe", pdbfile="Oh.pdb")]
+            self.mof = [SBU("Fe", pdbfile="Oh")]
             dump = coordinate_dump(self.mof)
             write_xyz("history", dump[1], dump[0])
         else:
@@ -344,8 +386,9 @@ class Structure(object):
     def build(self):
         """Exhaustively builds MOF with metals and linkers"""
     
-        self.mof = [SBU("Cu_paddlewheel", pdbfile="Cu_paddlewheel.pdb")]
+        self.mof = []
         self.xyz_debug()
+        self.mof.append(copy.deepcopy(self.metal_corner))
         dump = coordinate_dump(self.mof)
         write_xyz("history", dump[1], dump[0], self.pbc.cell)
    
@@ -359,23 +402,37 @@ class Structure(object):
             # check to see if the new SBU will bond to
             # any exisiting SBUs
             # check full saturation condition
-            if self.pbc.index > 2:
+            if self.pbc.index == 2:
                 self.pbc.complete_box()
             if self.saturated():
                 self.mof_reorient()
                 done = True
-            self.pbc_scan()
+            #self.pbc_scan()
             self.add_new_sbu()
             newsbu = len(self.mof) - 1
             self.sbu_check(newsbu)
             self.increment()
-                
+
+        # Apply pbc's to all coordinates
+        self.final_coords()
 
         # dump framework into an xyz file
         dump = coordinate_dump(self.mof)
         write_xyz("FINAL", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
         write_pdb("FINAL", dump[1], dump[0], self.pbc.acell)
 
+    def final_coords(self):
+        """
+        convert all coordinates to the shifted coordinates derived
+        from the periodic boundary conditions
+        """
+        for mof in self.mof:
+            for ibond, bond in enumerate(mof.connectpoints):
+                mof.connectpoints[ibond] = self.apply_pbc(bond)
+            for icoord, coord in enumerate(mof.coordinates):
+                mof.coordinates[icoord] = self.apply_pbc(coord)
+        return
+                
     def mof_reorient(self):
         """
         Re-orients the cell vectors and the coordinates such that the
@@ -447,7 +504,7 @@ class Structure(object):
         """
 
         if self.overlap(sbu_ind1):
-            self.log.error("Overlap found with SBU %i"%sbu_ind1)
+            self.log.info("Overlap found with SBU %i"%sbu_ind1)
 
         # exclude bonds in scan which are already bonded in the sbu
         bonds = [i for i in range(len(self.mof[sbu_ind1].connectivity)) 
@@ -490,26 +547,26 @@ class Structure(object):
                             self.add_bond(sbu_ind1, nbond1, sbu_ind2, 
                                           nbond2)
                             return 
-                        if self.new_pbc(
+                        if self.pbc.index < 2 and self.new_pbc(
                                 self.mof[sbu_ind1].connect_vector[nbond1],
-                                connecting_point1, 
+                                self.mof[sbu_ind1].connectpoints[nbond1], 
                                 self.mof[sbu_ind2].connect_vector[nbond2],
-                                connecting_point2):
-                            self.pbc.origins[self.pbc.index] = \
-                                    self.mof[sbu_ind2].connectpoints[nbond2][:]
+                                self.mof[sbu_ind2].connectpoints[nbond2]):
                             self.add_bond(sbu_ind1, nbond1, sbu_ind2, 
                                           nbond2)
-                            bond_vector = connecting_point1 -\
-                                          connecting_point2
+                            bond_vector = self.mof[sbu_ind1].connectpoints[nbond1] -\
+                                          self.mof[sbu_ind2].connectpoints[nbond2]
                             print "new cell found between sbu %i bond %i, and sbu %i bond %i"%(
-                                sbu_ind1, nbond1, sbu_ind2, nbond2)
+                                sbu_ind1, nbond1, sbu_ind2, nbond2), bond_vector
                             self.pbc.add_vector(bond_vector)
+                            self.pbc.origins[self.pbc.index] = \
+                                    self.mof[sbu_ind2].connectpoints[nbond2][:]
                             # When a new pbc is added, there should be
                             # a scan for other possible bonds with 
                             # existing sbus
                             return
 
-                        print "didn't do anything!"
+                        print "didn't do anything!", connecting_point2 - connecting_point1
 
     def add_bond(self, sbu1, bond1, sbu2, bond2):
         """ Joins two sbus together"""
@@ -530,9 +587,10 @@ class Structure(object):
         if self.mof[sbu1].ismetal == self.mof[sbu2].ismetal:
             return False
 
-        # TODO(pboyd): investigate if an inverted matrix with a 
-        # zero vector will perform the same as the projection 
-        # method below.
+        # FIXME(pboyd): this returns a valid bond if two connecting
+        # points are close to one another, this overlooks any anti
+        # parallel vector considerations or aligned anglevects...
+
         if  points_close(connecting_point1, 
                          connecting_point2, 1.5):
             return True
@@ -552,19 +610,60 @@ class Structure(object):
                            connect_vector2, connecting_point2):
         """
         Join two SBUs if they have anti-parallel bonding vectors,
-        are pointing away from each other, and an existing pbc can
-        join them.
+        are pointing away from each other, and existing pbc vectors
+        can join them.
         """
+        # tolerance for matching vector lengths.
+        tol = 0.5
         # if vectors are pointing away, they can be
         # joined by a periodic boundary
         #if self.pointing_away(connect_vector1, connecting_point1, 
         #                      connect_vector2, connecting_point2):
-        bond_vector = connecting_point1 - connecting_point2 
-        # check to see if an existing pbc vector can bond these sbus
-        for cellind, cellvector in enumerate(self.pbc.cell):
-            if self.pbc.line_test(cellind, bond_vector):
-                if np.allclose(length(cellvector),length(bond_vector), atol=0.5):
+        bond_vector = connecting_point1 - connecting_point2
+
+        if self.pbc.index >= 0:
+            proj_a = project(bond_vector, self.pbc.cell[0])
+            test_a = np.allclose(length(self.pbc.cell[0]), 
+                                 length(proj_a), atol=tol)
+            null_a = np.allclose(proj_a, np.zeros(3), atol=tol)
+            # case 1: the bond between two sbus can already be
+            # established by a single boundary condition
+            for i in range(self.pbc.index+1):
+                if self.pbc.line_test(i, bond_vector):
+                    if np.allclose(length(self.pbc.cell[i]), 
+                                   length(bond_vector), atol=tol):
+                        return True
+
+        if self.pbc.index >= 1:
+            proj_b = project(bond_vector, self.pbc.cell[1])
+            test_b = np.allclose(length(self.pbc.cell[1]), 
+                                 length(proj_b), atol=tol)
+            null_b = np.allclose(proj_b, np.zeros(3), atol=tol)
+            # case 2: the bond between two sbus is at the corner of
+            # two periodic boundaries.
+            if self.pbc.index == 1:
+                if test_a and test_b:
                     return True
+
+        if self.pbc.index == 2:
+            proj_c = project(bond_vector, self.pbc.cell[2])
+            test_c = np.allclose(length(self.pbc.cell[2]), 
+                                 length(proj_c), atol=tol)
+            null_c = np.allclose(proj_c, np.zeros(3), atol=tol)
+            # case 2: the bond between two sbus is at the corner of
+            # two periodic boundaries.
+            if test_a and test_b and null_c:
+                return True
+            if test_a and test_c and null_b:
+                return True
+            if test_c and test_b and null_a:
+                return True
+
+            # case 3: the bond between two sbus is at the corner of 
+            # three periodic boundaries.
+            if test_a and test_b and test_c:
+                return True
+
         return False
 
     def new_pbc(self, connect_vector1, connecting_point1,
@@ -572,14 +671,9 @@ class Structure(object):
         """
         Determine if the sbus can form a new boundary vector 
         """
-        if self.pointing_away(connect_vector1, connecting_point1,
-                              connect_vector2, connecting_point2):
-            bond_vector = connecting_point1 - connecting_point2 
-        else:
-            return False
-
+        bond_vector = connecting_point1 - connecting_point2 
         if self.pbc.valid_vector(bond_vector):
-            if self.pbc.index < 3:
+            if self.pbc.index < 2:
                 return True
 
         return False
@@ -592,7 +686,7 @@ class Structure(object):
         # TODO(pboyd): Do not permanently shift vectors by the periodic
         # boundaries, but when scannning new SBUs, implement the pbc 
         # correction to the scan.
-        boundaries = [self.pbc.cell[x] for x in range(self.pbc.index)]
+        boundaries = [self.pbc.cell[x] for x in range(self.pbc.index+1)]
         boundaries = array(boundaries)
         tempcoords, tempconnect = [], []
         for i, j in enumerate(boundaries):
@@ -616,30 +710,36 @@ class Structure(object):
         A = self.pbc.cell[0]
         B = self.pbc.cell[1]
         C = self.pbc.cell[2]
-        if self.pbc.index == 1:
+        if np.allclose(vector, np.zeros(3)):
+            return vector
+        if self.pbc.index == 0:
             vector = vectorshift(vector, A)
-        elif self.pbc.index == 2:
+            #vector = vector
+        elif self.pbc.index == 1:
             # FIXME(pboyd): this is not the right way to apply
             # boundary conditions with only two vectors.. still
             # trying to work this one out.
-            #ab = np.dot(A, B)
-            #shift_vector = np.zeros(3)
-            for cell in self.pbc.cell[:2]:
-                vector = vectorshift(vector, cell)
-                #shift_vector = shift_vector + project(vector, cell)
-            #a = np.dot(shift_vector, B) / ab 
-            #b = np.dot(shift_vector, A) / ab
-            #vector = vector - (math.floor(a)*A) - (math.floor(b)*B)
-        elif self.pbc.index == 3:
-            bca = np.dot(B, np.cross(C,A))
-            a = np.dot(C, np.cross(vector, B)) / bca
-            b = np.dot(C, np.cross(vector, A)) / (-1.*bca)
-            c = np.dot(B, np.cross(vector, A)) / bca
+            ab = dot(A, B)
+            proj_a = project(vector, self.pbc.cell[0])
+            proj_b = project(vector, self.pbc.cell[1])
+            a = length(proj_a) / length(self.pbc.cell[0])
+            b = length(proj_b) / length(self.pbc.cell[1])
+            if anti_parallel_test(proj_a, self.pbc.cell[0]):
+                a = -1*a
+            if anti_parallel_test(proj_b, self.pbc.cell[1]):
+                b = -1*b
+            #vector = vector
+            vector = vector - (math.floor(a)*A) - (math.floor(b)*B)
+        elif self.pbc.index == 2:
+            bca = dot(B, cross(C,A))
+            a = dot(C, cross(vector, B)) / bca
+            b = dot(C, cross(vector, A)) / (-1.*bca)
+            c = dot(B, cross(vector, A)) / bca
             a = a - math.floor(a)
             b = b - math.floor(b)
             c = c - math.floor(c)
             vector = (a)*A + (b)*B + (c)*C
-
+            #vector = vector
         return vector
 
     def pbc_break(self, ind):
@@ -665,13 +765,10 @@ class Structure(object):
         if self.mof[sbu].connectivity[bond] is None:
             if self.mof[sbu].ismetal:
                 # add organic linker to the metal link
-                self.mof.append(SBU("BTC", 
-                    pdbfile="btc_stripped.pdb",
-                    ismetal=False))
+                self.mof.append(copy.deepcopy(self.organic_linker))
             else:
                 # add metal corner to the organic link
-                self.mof.append(SBU("Cu_paddlewheel", 
-                    pdbfile="Cu_paddlewheel.pdb"))
+                self.mof.append(copy.deepcopy(self.metal_corner))
     
             sbu2 = len(self.mof) - 1
             # randomly chose the linker bond to attach to the 
@@ -730,9 +827,9 @@ class Structure(object):
         overlapping = False
         for sbu in exclrange:
             for coords in self.mof[sbu].coordinates:
+                coords = self.apply_pbc(coords)
                 for xyz in self.mof[struct].coordinates:
                     xyz = self.apply_pbc(xyz)
-                    coords = self.apply_pbc(coords)
                     if (length(xyz, coords) <= disttol):
                         print "overlap found with SBU %i and SBU %i"%(
                                 struct, sbu)
@@ -1009,8 +1106,10 @@ def length(coord1, coord2=None):
         coord2 = coord2
     else:
         coord2 = np.zeros(3)
+    if sum(coord1) == 0. and sum(coord2) == 0.:
+        return 0.
     vector = coord2 - coord1
-    return np.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + 
+    return math.sqrt(vector[0] * vector[0] + vector[1] * vector[1] + 
                    vector[2] * vector[2])
 
 def rotation_axis(vect1, vect2):
@@ -1077,7 +1176,7 @@ def planar_test(coordinates, tol=None):
     planevector1 = normalize(coordinates[1] - coordinates[0])
 
     index = 1
-    while np.allclose(sum(planevector1),0.):
+    while np.allclose(sum(planevector1), 0., atol=tol):
         index += 1
         planevector1 = normalize(coordinates[index] - coordinates[0])
     # test points for colinearity with the first vector
@@ -1111,7 +1210,7 @@ def normalize(vector):
     """changes vector length to unity"""
     if sum(vector) == 0.:
         return vector
-    return vector / np.sqrt(np.dot(vector, vector))
+    return vector / math.sqrt(dot(vector, vector))
 
 def linear_test(coordinates, tol=None):
     """
@@ -1157,10 +1256,13 @@ def project(vector1, vector2):
     unit2 = normalize(vector2)
     return length(vector1) * np.cos(angle) * unit2
 
-def anti_parallel_test(vector1, vector2):
+def anti_parallel_test(vector1, vector2, tol=None):
     """test for two vectors being in anti-parallel orientations"""
 
-    tol = 5e-2
+    if tol is not None:
+        tol = tol
+    else:
+        tol = 5e-2
     vector1 = normalize(vector1)
     vector2 = normalize(vector2)
     test1 = np.allclose(np.cross(vector1, vector2), 
@@ -1171,10 +1273,12 @@ def anti_parallel_test(vector1, vector2):
     else:
         return False
 
-def parallel_test(vector1, vector2):
+def parallel_test(vector1, vector2, tol=None):
     """test for two vectors being in parallel orientations"""
-
-    tol = 1e-2 
+    if tol is not None:
+        tol = tol
+    else:
+        tol = 1e-2 
     vector1 = normalize(vector1)
     vector2 = normalize(vector2)
     test1 = np.allclose(np.cross(vector1, vector2), 
@@ -1190,7 +1294,7 @@ def write_pdb(label, atoms, coords, acell):
     today = date.today()
     lines = []
     atomformat1 = "%-6s%5i %-4s %3s %1s%4i%s   "
-    atomformat2 = "%8.3f%8.3f%8.3f%6.2f%6.2f           %2s%2s\n"
+    atomformat2 = "%8.3f%8.3f%8.3f%6.2f%6.2f            %-3s%2s\n"
     lines.append("%6s   Created: %s \n%-6s" % ('REMARK', 
                   today.strftime("%A %d %B %Y"), 'CRYST1'))
     lines.append("%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f P1\n"
@@ -1218,6 +1322,24 @@ def write_xyz(label, atoms, coords, cell, origin=None):
     for i in range(len(coords)):
         xyzfile.write('%s%12.5f%12.5f%12.5f\n' % 
                 (tuple([atoms[i]]+list(coords[i]))))
+
+def dot(vector1, vector2):
+    """
+    returns the dot product of two three dimensional vectors
+    """
+    v0 = vector1[0] * vector2[0]
+    v1 = vector1[1] * vector2[1]
+    v2 = vector1[2] * vector2[2]
+    return (v0 + v1 + v2) 
+
+def cross(vector1, vector2):
+    """
+    returns the cross product of two three dimensional vectors
+    """
+    v0 = (vector1[1] * vector2[2]) - (vector1[2] * vector2[1])
+    v1 = -1.*((vector1[0] * vector2[2]) - (vector1[2] * vector2[0]))
+    v2 = (vector1[0] * vector2[1]) - (vector1[1] * vector2[0])
+    return array([v0,v1,v2])
 
 def coordinate_dump(structure):
     """ 
