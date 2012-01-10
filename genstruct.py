@@ -24,6 +24,135 @@ from datetime import date
 
 RAD2DEG = 180./np.pi
 
+class Generate(object):
+    """
+    This will contain all the wrappers for iterative and non iterative
+    structure generations.
+    """
+   
+    def __init__(self, choice):
+        
+        self.bondrules = []
+        self.anglrules = []
+        self.generation()
+
+    def generation(self):
+        """
+        Provides rules for generating a MOF from a subset of SBUs,
+        these rules will be altered (randomly??? or iteratively???)
+        a few times regardless of build success. 
+        """
+        dataset = [SBU("Copper Paddlewheel", xsdfile="Cu_paddlewheel"),
+                   SBU("BTC", xsdfile="btc_stripped", ismetal=False),
+                   SBU("BDC", xsdfile="bdc_stripped", ismetal=False),
+                   SBU("linear_Fe", xsdfile="linear_Fe")]
+
+        done = False
+        self.set_rules(dataset)
+        count = 0
+        while not done:
+            # call the Structure class with a set of SBU's and rules to
+            # attempt to build the MOF
+            struct = Structure(dataset, self.bondrules, self.anglrules)
+            struct.build()
+            if not struct.goodstruct:
+                self.change_rules(dataset)
+            else:
+                done = True
+            count += 1
+            if count == 5:
+                done = True
+
+    def change_rules(self, dataset):
+        """
+        Big random change of the bonding and angle rules for building 
+        a MOF.  
+        """
+        # TODO(pboyd): use different keys to determine the type of change
+        # ie. bigrandom, smallrandom, bigiterative, smalliterative etc..
+
+        # reset the bond rules
+        self.bondrules = []
+        self.anglrules = []
+        organic = [i for i in range(len(dataset)) if not dataset[i].ismetal]
+        org_count = len(organic)
+        metal = [i for i in range(len(dataset)) if dataset[i].ismetal]
+        met_count = len(metal)
+        for number, unit in enumerate(dataset):
+            if unit.ismetal:
+                numbonds = len(unit.connectpoints)
+                bondstr = "" 
+                for i in range(numbonds):
+                    # Random bond choice
+                    bondstr = bondstr + str(organic[randrange(org_count)])
+                # anglestr typically ignored for the metals, this will
+                # be applied to the organic linkers
+                anglestr = ""
+                # angle choice random as is the initial.
+                for angles in unit.connectangles:
+                    numangles = len(angles)
+                    anglestr = anglestr + str(randrange(numangles))
+            else:
+                numbonds = len(unit.connectpoints)
+                numangle = len(unit.connectangles)
+                bondstr = "" 
+                for i in range(numbonds):
+                    # Random bond choice
+                    bondstr = bondstr + str(metal[randrange(met_count)])
+                anglestr = ""
+                # angle choice random as is the initial.
+                for angles in unit.connectangles:
+                    numangles = len(angles)
+                    anglestr = anglestr + str(randrange(numangles))
+
+            self.bondrules.append(bondstr)
+            self.anglrules.append(anglestr)
+
+        return
+
+    def set_rules(self, dataset):
+        """
+        initial generation of building rules for new MOF
+        """
+        # currently make bonding only between metal and organic SBUs
+        organic = [i for i in range(len(dataset)) if not dataset[i].ismetal]
+        org_count = len(organic)
+        metal = [i for i in range(len(dataset)) if dataset[i].ismetal]
+        met_count = len(metal)
+        for number, unit in enumerate(dataset):
+            if unit.ismetal:
+                numbonds = len(unit.connectpoints)
+                # alternate between SBUs for initial config
+                # FIXME(pboyd): note, problems if the number of SBUs
+                # is greater than the number of bonds on the metal
+                bondstr = "%i" * numbonds %(tuple(
+                            [organic[(i)%org_count] for i in range(numbonds)]))
+                # anglestr typically ignored for the metals, this will
+                # be applied to the organic linkers
+                anglestr = ""
+                for angles in unit.connectangles:
+                    numangles = len(angles)
+                    # Random? choosing of initial angles
+                    anglestr = anglestr + str(randrange(numangles))
+            else:
+                numbonds = len(unit.connectpoints)
+                numangle = len(unit.connectangles)
+                # alternate between SBUs for initial config
+                bondstr = "%i" * numbonds %(tuple(
+                            [metal[(i)%met_count] for i in range(numbonds)]))
+                anglestr = ""
+                for angles in unit.connectangles:
+                    numangles = len(angles)
+                    # Random? choosing of initial angles
+                    anglestr = anglestr + str(randrange(numangles))
+
+            self.bondrules.append(bondstr)
+            self.anglrules.append(anglestr)
+
+        return
+
+
+
 class SBU(object):
     """
     """
@@ -31,6 +160,10 @@ class SBU(object):
     def __init__(self, type=None, atomlabel=None, coordinates=None,
                  pdbfile=None, xsdfile=None, ismetal=None):
         #self.log = bookkeeping.Log()
+
+        # index is used to keep track of the SBU's order when building
+        # new structures.
+        self.index = None
         if type is not None:
             self.type = type
         else: 
@@ -57,10 +190,10 @@ class SBU(object):
         self.connect_vector = []
         # terminal points of connecting vectors for SBU
         self.connectpoints = []
-        # keeping track of which connecting points are bonded
-        self.connectivity = []
         # angle vectors used to align SBUs once bonded together
         self.anglevect = []
+        # angles for possible rotations
+        self.connectangles = []
 
         # Default metal
         if ismetal is not None:
@@ -165,7 +298,7 @@ class SBU(object):
                         purgeatoms.append(i)
                 pt = self.coordinates[indx]
                 self.connectpoints.append(pt)
-                self.connectivity.append(None)
+                self.connectangles.append([0.])
                 purgeatoms.append(indx)
 
         # purge any coordinates in self.coordinates belonging to "X"'s
@@ -349,78 +482,167 @@ class Structure(object):
 
     """
  
-    def __init__(self):
+    def __init__(self, sbu_array, bondrules, anglrules):
         self.pbc = Cell() 
         # the list mof keeps track of all the SBUs
         self.mof = []
-        self.metal_corner = None
-        self.organic_linker = None
         # initialize logging for this MOF
         self.log = bookkeeping.Log()
         # iterators for the sbu and it's connection point 
         self.sbuind, self.bondind = 0, 0
-        # list to keep track of bonding via periodic boundaries
-        self.boundary_connect = [[],[],[]]
-        self.sbu_selection()
+        # list to keep track of bonding between SBU's
+        self.connectivity = []
+        # list of SBU's
+        self.sbu_array = sbu_array
+        for i, j in enumerate(self.sbu_array):
+            j.index = i
+        self.bondrules = bondrules
+        self.anglrules = anglrules
 
-    def sbu_selection(self, i=None, j=None):
-        """
-        select SBU's for mof generation, this will eventually
-        be specified by an iteration sequence where the numbers 
-        i and j will be the designations for the SBUs
-        """
-        self.metal_corner = SBU(xsdfile="linear_Fe")
-        self.organic_linker = SBU("tet", xsdfile="tetrahedral",
-                                  ismetal=False)
+        self.goodstruct = False
+        self.terminate = False
 
-    def build_one(self):
-        """Adds one extra SBU to the growing MOF"""
-        if len(self.mof) == 0:
-            self.mof = [SBU("Fe", pdbfile="Oh")]
-            dump = coordinate_dump(self.mof)
-            write_xyz("history", dump[1], dump[0])
-        else:
-            self.add_new_sbu()
-            self.increment()
+        self.sbuind = 0
+        self.bondind = 0
+
+        print self.bondrules, self.anglrules
 
     def build(self):
         """Exhaustively builds MOF with metals and linkers"""
     
-        self.mof = []
+        self.mof.append(copy.deepcopy(self.sbu_array[0]))
+        self.connectivity.append([None]*len(self.mof[0].connectpoints))
         self.xyz_debug()
-        self.mof.append(copy.deepcopy(self.metal_corner))
         dump = coordinate_dump(self.mof)
         write_xyz("history", dump[1], dump[0], self.pbc.cell)
    
         # progressive building of MOF, will complete when all
         # bonds are saturated
-        done = False
-        while not done:
-
-            # TODO(pboyd): add a routine to shift all atoms into the
-            # box
-            # check to see if the new SBU will bond to
-            # any exisiting SBUs
-            # check full saturation condition
+        while not self.terminate:
             if self.pbc.index == 2:
                 self.pbc.complete_box()
+            # check full saturation condition
             if self.saturated():
                 self.mof_reorient()
-                done = True
-            #self.pbc_scan()
-            self.add_new_sbu()
+                self.goodstruct = True
+                self.terminate = True
+            # try growing the mof, if fails then go back and change
+            # bond rules
+            self.add_new_sbu(self.sbuind, self.bondind)
             newsbu = len(self.mof) - 1
             self.sbu_check(newsbu)
             self.increment()
 
-        # Apply pbc's to all coordinates
-        self.final_coords()
+        if self.goodstruct:
+            # Apply pbc's to all coordinates
+            self.final_coords()
 
         # dump framework into an xyz file
         dump = coordinate_dump(self.mof)
         write_xyz("FINAL", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
         write_pdb("FINAL", dump[1], dump[0], self.pbc.acell)
 
+    def add_new_sbu(self, exind, exbond):
+        """adds a new sbu to the growing MOF"""
+        if self.connectivity[exind][exbond] is None:
+
+            # choose an SBU to attach according to the rules of
+            # the SBU exind
+            sbutype = self.choose_SBU(exind, exbond)
+            # following are lists of possible bonds and angles.
+            sbubond = self.choose_bond(exind, sbutype)
+            sbuangle = self.choose_angle(exind, exbond, sbutype, sbubond)
+            # attempt to attach the selected sbu to the designated bond,
+            # if this is not achieved, return with negative to the 
+            # outter process.
+            self.mof.append(copy.deepcopy(self.sbu_array[sbutype]))
+            newind = len(self.mof) - 1
+            self.connectivity.append([None]*len(self.mof[newind].connectpoints))
+            iter = 0
+            done = False
+            while not done:
+                # try to attach the bond and angles listed
+                newbond = sbubond[iter]
+                angle = sbuangle[iter] 
+                self.log.info(
+                    "added %s, sbu %i, bond %i to SBU %i, %s bond %i"
+                    %(self.mof[newind].type, newind, newbond, exind,
+                      self.mof[exind].type, exbond))
+                self.connectivity[exind][exbond] = newind
+                self.connectivity[newind][newbond] = exind
+
+                self.xyz_debug()
+                dump = coordinate_dump(self.mof)
+                write_xyz("history", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
+
+                self.sbu_align(exind, exbond, newind, newbond)
+
+                self.xyz_debug()
+                dump = coordinate_dump(self.mof)
+                write_xyz("history", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
+                # rotate by Y vector
+                self.bond_align(exind, exbond, newind, newbond, angle) 
+
+                self.xyz_debug()
+                dump = coordinate_dump(self.mof)
+                write_xyz("history", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
+                if self.overlap(newind):
+                    self.log.info("Overlap found with SBU %i"%newind)
+                    self.connectivity[exind][exbond] = None 
+                    self.connectivity[newind][newbond] = None 
+                    iter+=1
+                else:
+                    done = True
+                if iter == len(sbubond):
+                    # no structure made, raise flag
+                    self.log.info("No structure made according to "+\
+                            "bonding rules.")
+                    self.goodstruct = False
+                    self.terminate = True
+                    done = True
+
+    def choose_SBU(self, exind, exbond):
+        """
+        chooses the SBU and bond to add according to the rules
+        designated for SBU exind
+        """
+        sbu1 = self.mof[exind].index 
+        sbu2 = int(self.bondrules[sbu1][exbond])
+        return sbu2
+
+    def choose_bond(self, exind, sbutype):
+        """
+        returns a list of possible bonds to bond to the sbu exind
+        """
+        sbu1 = self.mof[exind].index
+        bondrule = self.bondrules[sbutype]
+        return [i for i in range(len(bondrule)) if int(bondrule[i]) == sbu1]
+
+    def choose_angle(self, exind, exbond, sbutype, sbubond):
+        """
+        returns a list of angles associated with the bonds possible
+        for binding of SBU exind with SBU sbutype
+        """
+        # angles will typically be listed with the organic SBU
+        # hence metal SBUs will need to find the accompanying 
+        # organic bonding angle
+
+        extype = self.mof[exind].index
+        bondrule = self.bondrules[sbutype]
+        if self.mof[exind].ismetal:
+            # adding organic linker, take angles from it's
+            # own anglerules
+            anglrule = self.anglrules[sbutype]
+            array = [self.sbu_array[sbutype].connectangles[i][
+                    int(anglrule[i])] for i in sbubond]
+        else:
+            # adding metallic cluster, take angle from
+            # the organic unit
+            anglrule = str(self.anglrules[extype][exbond])
+            array = [self.mof[exind].connectangles[exbond][
+                     int(anglrule)] for i in range(len(sbubond))]
+        return array 
+    
     def final_coords(self):
         """
         convert all coordinates to the shifted coordinates derived
@@ -444,32 +666,43 @@ class Structure(object):
         # first rotation to the x-axis
         x_rotangle = calc_angle(self.pbc.cell[0], xaxis)
         x_rotaxis = rotation_axis(self.pbc.cell[0], xaxis)
-        R = rotation_matrix(x_rotaxis, x_rotangle)
-        self.pbc.cell = array(self.pbc.cell * R)
+        RX = rotation_matrix(x_rotaxis, x_rotangle)
+        self.pbc.cell = array(self.pbc.cell * RX)
         for sbu in self.mof:
-            sbu.coordinates = array(sbu.coordinates * R)
-            sbu.connect_vector = array(sbu.connect_vector * R)
-            sbu.anglevect = array(sbu.anglevect * R)
-            sbu.connectpoints = array(sbu.connectpoints * R)
+            sbu.coordinates = array(sbu.coordinates * RX)
+            sbu.connect_vector = array(sbu.connect_vector * RX)
+            sbu.anglevect = array(sbu.anglevect * RX)
+            sbu.connectpoints = array(sbu.connectpoints * RX)
 
         # second rotation to the xy - plane
         projx_b = self.pbc.cell[1] - project(self.pbc.cell[1], xaxis)
         self.icell = np.zeros((3,3))
         xy_rotangle = calc_angle(projx_b, yaxis)
         xy_rotaxis = xaxis
-        R = rotation_matrix(xy_rotaxis, xy_rotangle)
+        RXY = rotation_matrix(xy_rotaxis, xy_rotangle)
         # test to see if the rotation is in the right direction
-        testvect = array(projx_b * R)[0]
+        testvect = array(projx_b * RXY)[0]
         testangle = calc_angle(testvect, yaxis)
         if not np.allclose(testangle, 0., atol = 1e-3):
-            R = rotation_matrix(-1.*xy_rotaxis, xy_rotangle)
+            RXY = rotation_matrix(-1.*xy_rotaxis, xy_rotangle)
 
-        self.pbc.cell = array(self.pbc.cell * R)
+        self.pbc.cell = array(self.pbc.cell * RXY)
         for sbu in self.mof:
-            sbu.coordinates = array(sbu.coordinates * R)
-            sbu.connect_vector = array(sbu.connect_vector * R)
-            sbu.anglevect = array(sbu.anglevect * R)
-            sbu.connectpoints = array(sbu.connectpoints * R)
+            sbu.coordinates = array(sbu.coordinates * RXY)
+            sbu.connect_vector = array(sbu.connect_vector * RXY)
+            sbu.anglevect = array(sbu.anglevect * RXY)
+            sbu.connectpoints = array(sbu.connectpoints * RXY)
+
+        # third change: -z to +z direction
+        if self.pbc.cell[2][2] < 0.:
+            RZ = rotation_matrix(array([1.,0.,0]), np.pi) 
+            self.pbc.cell = array(self.pbc.cell * RZ)
+            for sbu in self.mof:
+                sbu.coorinates = array(sbu.coordinates * RZ)
+                sbu.connect_vector = array(sbu.connect_vector * RZ)
+                sbu.anglevect = array(sbu.anglevect * RZ)
+                sbu.connectpoints = array(sbu.connectpoints * RZ)
+
         return
 
     def increment(self):
@@ -488,11 +721,9 @@ class Structure(object):
         """
         returns False if at least one bond is unsaturated
         """
-        for imof in self.mof:
-            for ibond in imof.connectivity:
-                if ibond is None:
-                    return False
-
+        for imof, mof in enumerate(self.connectivity):
+            if [no_bond for no_bond in mof if no_bond is None]:
+                return False
         return True
 
     def sbu_check(self, sbu_ind1):
@@ -500,15 +731,10 @@ class Structure(object):
         Checks an SBU for 
         1. bonding locally,
         2. bonding by existing pbc
-        3. if there are atomistic overlaps
         """
-
-        if self.overlap(sbu_ind1):
-            self.log.info("Overlap found with SBU %i"%sbu_ind1)
-
         # exclude bonds in scan which are already bonded in the sbu
-        bonds = [i for i in range(len(self.mof[sbu_ind1].connectivity)) 
-                 if self.mof[sbu_ind1].connectivity[i] is None]
+        bonds = [i for i in range(len(self.connectivity[sbu_ind1])) 
+                 if self.connectivity[sbu_ind1][i] is None]
         # exclude the sbu in question when scanning the other sbus
         # (it generally will not bond to itself!)
         mofscan = [i for i in range(len(self.mof)) if i is not sbu_ind1]
@@ -516,7 +742,7 @@ class Structure(object):
         # loop over bonds in sbu1, inner loop over all other
         # sbus and their bonds
         for sbu_ind2 in mofscan:
-            for nbond2 in range(len(self.mof[sbu_ind2].connectivity)):
+            for nbond2 in range(len(self.connectivity[sbu_ind2])):
                 for nbond1 in bonds:
                     # TODO(pboyd): investigate if an inverted matrix with a 
                     # zero vector will perform the same as the projection 
@@ -526,17 +752,20 @@ class Structure(object):
                     connecting_point2 = self.apply_pbc(
                             self.mof[sbu_ind2].connectpoints[nbond2])
                     if self.is_valid_bond(sbu_ind1, nbond1, sbu_ind2, 
-                                          nbond2, connecting_point1, 
+                                          nbond2, connecting_point1,
                                           connecting_point2):
                         print "valid bond reached"
-                        if self.local_attach_sbus(connecting_point1,
-                                                  connecting_point2):
+                        # local bond, no periodic boundaries considered.
+                        if self.local_attach_sbus(
+                                self.mof[sbu_ind1].connectpoints[nbond1],
+                                self.mof[sbu_ind2].connectpoints[nbond2]): 
                             print "local bond found between sbu %i bond %i, and sbu %i bond %i"%(
                                 sbu_ind1, nbond1, sbu_ind2, nbond2)
                             self.add_bond(sbu_ind1, nbond1, sbu_ind2,
-                                          nbond2)
-
+                                          nbond2, True)
                             return 
+                        # remote bonding via application of periodic 
+                        # boundaries.
                         if self.remote_attach_sbus(
                                 self.mof[sbu_ind1].connect_vector[nbond1],
                                 connecting_point1, 
@@ -545,15 +774,17 @@ class Structure(object):
                             print "remote bond found between sbu %i bond %i, and sbu %i bond %i"%(
                                 sbu_ind1, nbond1, sbu_ind2, nbond2)
                             self.add_bond(sbu_ind1, nbond1, sbu_ind2, 
-                                          nbond2)
-                            return 
+                                          nbond2, False)
+                            return
+                        # remote bond and addition of new boundary
+                        # condition.
                         if self.pbc.index < 2 and self.new_pbc(
                                 self.mof[sbu_ind1].connect_vector[nbond1],
                                 self.mof[sbu_ind1].connectpoints[nbond1], 
                                 self.mof[sbu_ind2].connect_vector[nbond2],
                                 self.mof[sbu_ind2].connectpoints[nbond2]):
                             self.add_bond(sbu_ind1, nbond1, sbu_ind2, 
-                                          nbond2)
+                                          nbond2, False)
                             bond_vector = self.mof[sbu_ind1].connectpoints[nbond1] -\
                                           self.mof[sbu_ind2].connectpoints[nbond2]
                             print "new cell found between sbu %i bond %i, and sbu %i bond %i"%(
@@ -568,10 +799,14 @@ class Structure(object):
 
                         print "didn't do anything!", connecting_point2 - connecting_point1
 
-    def add_bond(self, sbu1, bond1, sbu2, bond2):
+    def add_bond(self, sbu1, bond1, sbu2, bond2, islocal):
         """ Joins two sbus together"""
-        self.mof[sbu1].connectivity[bond1] = sbu2
-        self.mof[sbu2].connectivity[bond2] = sbu1
+        if islocal:
+            self.connectivity[sbu1][bond1] = sbu2
+            self.connectivity[sbu2][bond2] = sbu1
+        else:
+            self.connectivity[sbu1][bond1] = -1*sbu2
+            self.connectivity[sbu2][bond2] = -1*sbu1
 
     def is_valid_bond(self, sbu1, bond1, sbu2, bond2, 
                       connecting_point1, connecting_point2):
@@ -581,7 +816,7 @@ class Structure(object):
         they are not bonded already and they are linking to the 
         appropriate SBU
         """
-        if (self.mof[sbu2].connectivity[bond2] is not None):
+        if (self.connectivity[sbu2][bond2] is not None):
             return False
 
         if self.mof[sbu1].ismetal == self.mof[sbu2].ismetal:
@@ -603,6 +838,8 @@ class Structure(object):
         Checks to see if the bond is local and apply boundary 
         corrections if pbc vectors are present
         """
+        # TODO(pboyd): additional checks, parallel connect_vectors,
+        # parallel anglevects
         test = points_close(connecting_point1, connecting_point2, 1.5)
         return test 
 
@@ -619,6 +856,13 @@ class Structure(object):
         # joined by a periodic boundary
         #if self.pointing_away(connect_vector1, connecting_point1, 
         #                      connect_vector2, connecting_point2):
+
+        # check if a local bond can be applied after applying pbc
+        # conditions.  NOTE: this is still considered a "remote"
+        # attachment since pbc conditions are used.
+        if self.local_attach_sbus(connecting_point1, connecting_point2):
+            return True
+
         bond_vector = connecting_point1 - connecting_point2
 
         if self.pbc.index >= 0:
@@ -716,9 +960,6 @@ class Structure(object):
             vector = vectorshift(vector, A)
             #vector = vector
         elif self.pbc.index == 1:
-            # FIXME(pboyd): this is not the right way to apply
-            # boundary conditions with only two vectors.. still
-            # trying to work this one out.
             ab = dot(A, B)
             proj_a = project(vector, self.pbc.cell[0])
             proj_b = project(vector, self.pbc.cell[1])
@@ -747,56 +988,12 @@ class Structure(object):
         Removes a periodic boundary, removes 
         bonds from SBUs, resets MOF index
         """
-        self.pbc.index -= 1
-        for j in range(ind, 2):
-            self.pbc.cell[j] = self.pbc.cell[j+1][:]
-
-        for i in self.boundary_connect[ind]:
-            self.mof[i[0]].connectivity[i[1]] = None
-        self.boundary_connect.pop(ind)
-        self.boundary_connect.append([])
+        # FIXME(pboyd): Not done yet.
+        for i in self.connectivity:
+            self.connectivity[i[1]] = None
         self.bondind = 0
         self.sbuind = 0
 
-    def add_new_sbu(self):
-        """adds a new sbu to the growing MOF"""
-        sbu = self.sbuind
-        bond = self.bondind
-        if self.mof[sbu].connectivity[bond] is None:
-            if self.mof[sbu].ismetal:
-                # add organic linker to the metal link
-                self.mof.append(copy.deepcopy(self.organic_linker))
-            else:
-                # add metal corner to the organic link
-                self.mof.append(copy.deepcopy(self.metal_corner))
-    
-            sbu2 = len(self.mof) - 1
-            # randomly chose the linker bond to attach to the 
-            # metal
-            bond2 = randrange(len(self.mof[sbu2].connect_vector))
-            self.log.info(
-                    "added %s, sbu %i, bond %i to SBU %i, %s bond %i"
-                    %(self.mof[sbu2].type, sbu2, bond2, sbu,
-                      self.mof[sbu].type, bond))
-            self.mof[sbu].connectivity[bond] = sbu2 
-            self.mof[sbu2].connectivity[bond2] = sbu
-
-            self.xyz_debug()
-            dump = coordinate_dump(self.mof)
-            write_xyz("history", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
-
-            self.sbu_align(sbu, bond, sbu2, bond2)
-
-            self.xyz_debug()
-            dump = coordinate_dump(self.mof)
-            write_xyz("history", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
-            # rotate by Y vector
-            self.bond_align(sbu, bond, sbu2, bond2) 
-
-            self.xyz_debug()
-            dump = coordinate_dump(self.mof)
-            write_xyz("history", dump[1], dump[0], self.pbc.cell, self.pbc.origins)
-    
     def pointing_away(self, connect_vector1, connecting_point1,
                       connect_vector2, connecting_point2):
         """
@@ -882,7 +1079,7 @@ class Structure(object):
         xyzfile.writelines(line)
         xyzfile.close()
 
-    def bond_align(self, sbu1, bond1, sbu2, bond2):
+    def bond_align(self, sbu1, bond1, sbu2, bond2, rotangle):
         """
         Align two sbus by their orientation vectors
         """
@@ -907,7 +1104,7 @@ class Structure(object):
             axis = -1.*axis
 
         # rotation of SBU
-        self.sbu_rotation(sbu2, rotpoint, axis, angle)
+        self.sbu_rotation(sbu2, rotpoint, axis, angle + rotangle)
         angle2 = calc_angle(sbu1.anglevect[bond1],
                            sbu2.anglevect[bond2])
         if not np.allclose(angle2, 0., atol = 5e-2):
@@ -1256,6 +1453,25 @@ def project(vector1, vector2):
     unit2 = normalize(vector2)
     return length(vector1) * np.cos(angle) * unit2
 
+def degenerate_test(vector1, vector2, tol=None):
+    """
+    test for two vectors lying on the same line, parallel or 
+    anti-parallel.
+    """
+    if tol is not None:
+        tol = tol
+    else:
+        tol = 5e-2
+    vector1 = normalize(vector1)
+    vector2 = normalize(vector2)
+    test1 = np.allclose(cross(vector1, vector2), 
+                        np.zeros(3), atol=tol)
+    test2 = np.allclose(abs(dot(vector1, vector2)), 1., atol=tol)
+    if test1 and test2:
+        return True
+    else:
+        return False
+
 def anti_parallel_test(vector1, vector2, tol=None):
     """test for two vectors being in anti-parallel orientations"""
 
@@ -1265,9 +1481,9 @@ def anti_parallel_test(vector1, vector2, tol=None):
         tol = 5e-2
     vector1 = normalize(vector1)
     vector2 = normalize(vector2)
-    test1 = np.allclose(np.cross(vector1, vector2), 
+    test1 = np.allclose(cross(vector1, vector2), 
                         np.zeros(3), atol=tol)
-    test2 = np.allclose(np.dot(vector1, vector2), -1., atol=tol)
+    test2 = np.allclose(dot(vector1, vector2), -1., atol=tol)
     if test1 and test2:
         return True
     else:
@@ -1281,9 +1497,9 @@ def parallel_test(vector1, vector2, tol=None):
         tol = 1e-2 
     vector1 = normalize(vector1)
     vector2 = normalize(vector2)
-    test1 = np.allclose(np.cross(vector1, vector2), 
+    test1 = np.allclose(cross(vector1, vector2), 
                         np.zeros(3), atol=tol)
-    test2 = np.allclose(np.dot(vector1, vector2), 1., atol=tol)
+    test2 = np.allclose(dot(vector1, vector2), 1., atol=tol)
     if test1 and test2:
         return True
     else:
@@ -1356,10 +1572,21 @@ def coordinate_dump(structure):
 
     return (array(coords), atoms)
 
+def select_dataset():
+    """
+    selects a subset of SBUs from the database and passes it on for 
+    structure generation
+    """
+    # TODO(pboyd): set up this part
+    return
+
 def main():
     """Default if run as an executable"""
 
-    struct = Structure()
-    struct.build()
+    choice = "iterative"
+    genstruct = Generate(choice)
+
+#    struct = Structure()
+#    struct.build()
 if __name__ == '__main__':
     main()
