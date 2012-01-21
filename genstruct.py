@@ -92,26 +92,43 @@ class Generate(object):
                 
                 if structcount == 1:
                     done = True
-                string = self.iterate_string(string, maxstring)
 
             elif stringtype == "Backup":
                 # back to the previous string
+                string = self.stringhist[ints[0]]
                 self.readjust(struct, string)
-                struct.connectivity.pop(ints[0])
-                try: 
-                    self.stringhist.pop()
-                except:
-                    info("No structure could be made")
-                    done = True
-                string = self.stringhist[back]
-                string = self.iterate_string(string, maxstring)
-            else:
-                string = self.iterate_string(string, maxstring)
+
+            string = self.iterate_string(string, maxstring)
+
+    def readjust(struct, string, dataset):
+        """
+        Restart the structure generation up to the point where
+        the string was successful
+        """
+        ints = [int(i) for i in string.split("-")]
+
+        sbu0 = copy.deepcopy(sruct.mof[0])
+        # Reset struct to a blank slate
+        struct.reset() 
+        struct.mof.append(sbu0)
+        for oldstring in self.stringhist[:ints[0]]:
+            newsbu = len(struct.mof)
+            oldints = oldstring.split("-")
+            # Rebuild with the good strings
+            struct.apply_string(oldstring)
+            struct.join_sbus(oldints[0], oldints[1], 
+                             newsbu, oldints[3], False)
+            struct.sbu_check(newsbu)
+
+
     def valid_string(self, string, struct, database):
         """
         No fucking idea how this will work
         """
         ints = [int(i) for i in string.split("-")]
+        # all possibilities are exhausted without joining two SBUs
+        # then go back to the previous SBU and change it.
+        # TODO(pboyd): this needs to be hashed out.
         if ints[0] >= len(struct.mof):
             return "Backup"
 
@@ -582,6 +599,11 @@ class Structure(object):
         self.sbu_array = sbu_array
         for i, j in enumerate(self.sbu_array):
             j.index = i
+
+    def reset(self):
+        sbuarray = self.sbu_array
+        self.pbc = None
+        self.__init__(sbu_array)
 
     def try_iterate_string(self, string):
         """check whether a string will form an appropriate bond"""
