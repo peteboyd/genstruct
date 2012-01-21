@@ -16,9 +16,10 @@ import copy
 from numpy import array
 from elements import WEIGHT, ATOMIC_NUMBER
 import sample
-import bookkeeping
+from bookkeeping import Log
 from random import random, uniform, randrange, choice
 from datetime import date
+from logging import warning, debug, error, info, critical
 
 # Constants
 
@@ -30,54 +31,16 @@ class Generate(object):
     structure generations.
     """
    
-    def __init__(self, choice):
+    def __init__(self):
         
-        self.bondrules = []
-        self.anglrules = []
-        # maxsbu is the max number of sbus before termination..
-        self.maxsbu = 99
+        # moflib is the list containing MOF structures for extensive
+        # branching
+        self.moflib = []
         self.generation()
-
-    def iterate_string(self, string, dataset, mof):
-        """
-        increases the string by n+1
-        string has the format:
-        SBU # (old), old SBU bond, SBU type (new), new SBU bond
-        angle listed
-        """
-
-        values = string.split("-")
-        xarray = [int(i) for i in values]
-        isbu = xarray[0]
-        ibond = xarray[1]
-        nsbu = xarray[2]
-        nbond = xarray[3]
-        nangle = xarray[4]
-
-        xarray.reverse()
-        maxisbu = self.maxsbu # isbu will be continually growing.
-        maxibond = len(mof[isbu].connectpoints)
-        maxnsbu = len(dataset)
-        maxnbond = len(dataset[nsbu].connectpoints)
-        if mof[isbu].ismetal:
-            maxnangle = len(dataset[nsbu].connectangles[nbond]) 
-        else:
-            maxnangle = len(mof[isbu].connectangles[ibond])
-        # reversed from string order for iteration purposes
-        maxarray = [maxnangle, maxnbond, maxnsbu, maxibond, maxisbu]
-        # iterate by n+1.  This will depend on the sbu.
-        # isbu - ibond - nsbu - nbond - nangle
-
-        for ival, value in enumerate(xarray):
-            if value < (maxarray[ival]-1):
-                xarray[ival] += 1
-                return "%i-%i-%i-%i-%i"%(tuple(xarray[::-1]))
-            else:
-                xarray[ival] = 0
-
-        # if the function arives here, there's something wrong with 
-        # the string generation
-        print ("problem with the string generation.")
+        # string history stores how the MOF was built
+        self.stringhist = []
+        # max number of sbus in a structure
+        self.nsbumax = 99
 
     def random_insert(self, isbu, dataset, struct):
         """
@@ -87,46 +50,183 @@ class Generate(object):
         struct.connectivity.append([None]*len(dataset[isbu].connectpoints))
         # TODO(pboyd): randomly perturb the coordinates
 
-    def generation(self):
+    def branched_generation(self):
+        dataset = [SBU("Zn4O", xsdfile="Zn4O"),
+                   SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
+
+        structcount = 0
+        # Start the string off at "0-0-0-0-0"
+        string = "0-0-0-0-0"
+        self.stringhist = [string]
+        maxstring = self.setmax(dataset)
+        # only one structure generated (a "leaf")
+        struct = Structure(dataset)
+        self.random_insert(0, dataset, struct)
+        done = False
+        while not done:
+            stringtype = self.valid_string(string, struct, database)
+            ints = [int(i) for i in string.split("-")]
+            if stringtype == "True":
+                info("Applying %s"%(string))
+                debug("Number of SBUs in structure: %i"%(len(struct)))
+                sbu2 = len(newstruct.mof)
+                struct.apply_string(string)
+                if struct.bad_addition(string):
+                    warning("SBU overlap occured")
+                    struct.mof.pop()
+                else:
+                    struct.join_sbus(ints[0], ints[1], sbu2, ints[3], False)
+                    struct.sbu_check(sbu2)
+                    self.stringhist.append(string)
+                    
+                struct.pbc.complete_box()
+                if struct.saturated():
+                    struct.final_coords()
+                    struct.mof_reorient()
+                    struct.xyz_debug()
+                    dump = struct.coordinate_dump()
+                    write_pdb("final", dump[0], dump[1], struct.pbc.acell)
+                    write_xyz("final", dump[0], dump[1], 
+                          struct.pbc.cell, struct.pbc.origins)
+                    structcount += 1
+                
+                if structcount == 1:
+                    done = True
+                string = self.iterate_string(string, maxstring)
+
+            elif stringtype == "Backup":
+                # back to the previous string
+                self.readjust(struct, string)
+                struct.connectivity.pop(ints[0])
+                try: 
+                    self.stringhist.pop()
+                except:
+                    info("No structure could be made")
+                    done = True
+                string = self.stringhist[back]
+                string = self.iterate_string(string, maxstring)
+            else:
+                string = self.iterate_string(string, maxstring)
+    def valid_string(self, string, struct, database):
+        """
+        No fucking idea how this will work
+        """
+        ints = [int(i) for i in string.split("-")]
+        if ints[0] >= len(struct.mof):
+            return "Backup"
+
+        if ints[1] >= len(struct.mof[ints[0]].connectpoints):
+            return "False"
+
+        if ints[2] >= len(database):
+            return "False"
+
+        if ints[3] >= len(database[ints[2]].connectpoints):
+            return "False"
+        
+        if struct.connectivity[ints[0]][ints[1]] is not None:
+            return "False"
+
+        if struct.mof[ints[0]].ismetal == database[ints[2]].istmetal:
+            return "False"
+
+        if struct.mof[ints[0]].istmetal:
+            if ints[4] >= len(database[ints[2]].connectangles[ints[3]]):
+                return "False"
+        else:
+            if ints[4] >= len(struct.mof[ints[0]].connectangles[ints[1]]):
+                return "False"
+
+        return "True"
+
+    def iterate_string(self, string, maxstring):
+        """
+        iterate the string according to the max
+        """
+        liststring = [int(i) for i in string.split("-")]
+
+        for i, j in enumerate(reversed(liststring)):
+            if j == maxstring[-i-1]:
+                liststring[-i-1] = 0
+            else:
+                liststring[-i-1] += 1
+
+        return "%i-%i-%i-%i-%i"%(tuple(liststring))
+
+
+    def setmax(self, dataset):
+        """
+        Set maximum string
+        """
+        maxangle, maxbond = 0, 0, 0
+        maxsbu = len(dataset)
+        for sbu in dataset:
+            anglelen = max([len(i) for i in sbu.connectangles])
+            numbonds = len(sbu.connectpoints)
+            maxangle = max(maxangle, anglelen)
+            maxbond = max(maxbond, numbonds)
+
+        return([self.nsbumax, maxbond, maxsbu, maxbond, maxangle])
+
+    def exhaustive_generation(self):
         """
         generates MOFs via string iteration
         """
-        dataset = [SBU("Copper Paddlewheel", xsdfile="Cu_paddlewheel"),
-                   SBU("BTC", xsdfile="btc_stripped", ismetal=False)]
+        dataset = [SBU("Zn4O", xsdfile="Zn4O"),
+                   SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
 
-        # Start the string off at "0-0-0-0-0"
-        string = "0-0-0-0-0"
         # call the Structure class with a set of SBU's and rules to
         # attempt to build the MOF
-        struct = Structure(dataset)
-        self.random_insert(1, dataset, struct)
+        self.moflib.append(Structure(dataset))
+        # Start the string off at "0-0-0-0-0"
+        self.moflib[0].string = "0-0-0-0-0"
+        self.random_insert(0, dataset, self.moflib[0])
         done = False
+        stringcount = 0
         while not done:
-            string = self.iterate_string(string, dataset, struct.mof)
-            dir = [int(i) for i in string.split("-")]
-            if struct.init_string_check(string):
-                print string
-                sbu2 = len(struct.mof)
-                struct.apply_string(string)
-                if struct.bad_addition(string):
-                    print "bad"
-                    struct.connectivity.pop(sbu2)
-                    struct.mof.pop(sbu2)
-                    struct.connectivity[dir[0]][dir[1]] = None
-                else:
-                    struct.join_sbus(dir[0], dir[1], sbu2, dir[3], False)
-                    struct.sbu_check(sbu2)
-
-            struct.pbc.complete_box()
-            if struct.saturated():
-                struct.final_coords()
-                struct.mof_reorient()
-                struct.xyz_debug()
-                dump = struct.coordinate_dump()
-                write_pdb("final", dump[0], dump[1], struct.pbc.acell)
-                write_xyz("final", dump[0], dump[1], 
-                          struct.pbc.cell, struct.pbc.origins)
-                done = True 
+            stringcount+=1
+            newlist = []
+            for ind, struct in enumerate(self.moflib):
+                newstruct = self.pythonsuxcopy(struct)
+                if struct.try_iterate_string(struct.string):
+                    dir = [int(i) for i in struct.string.split("-")]
+                    info("Applying %s"%(struct.string))
+                    debug("Number of SBUs in structure: %i"%(len(struct.mof)))
+                    debug("Size of MOF array: %i"%(len(self.moflib)))
+                    sbu2 = len(newstruct.mof)
+                    newstruct.apply_string(struct.string)
+                    if newstruct.bad_addition(struct.string):
+                        warning("SBU overlap occured")
+                    else:
+                        newstruct.join_sbus(dir[0], dir[1], sbu2, dir[3], False)
+                        newstruct.sbu_check(sbu2)
+                        newlist.append(newstruct)
+                
+                newstruct.pbc.complete_box()
+                if newstruct.saturated():
+                    newstruct.final_coords()
+                    newstruct.mof_reorient()
+                    newstruct.xyz_debug()
+                    dump = newstruct.coordinate_dump()
+                    write_pdb("final", dump[0], dump[1], newstruct.pbc.acell)
+                    write_xyz("final", dump[0], dump[1], 
+                          newstruct.pbc.cell, newstruct.pbc.origins)
+                    done = True
+            [self.moflib.append(i) for i in newlist]
+    def pythonsuxcopy(self, struct):
+        """
+        module for copying Structure class which contains SBU class
+        and the Cell class.  copy.deepcopy fails for these class - 
+        within - class copies
+        """
+        dataset = copy.deepcopy(struct.sbu_array)
+        new = Structure(dataset)
+        new.connectivity = copy.deepcopy(struct.connectivity)
+        new.pbc = copy.deepcopy(struct.pbc)
+        new.mof = copy.deepcopy(struct.mof)
+        new.string = copy.deepcopy(struct.string)
+        new.sbu_array = copy.deepcopy(struct.sbu_array)
+        return new
 
 class SBU(object):
     """
@@ -134,8 +234,6 @@ class SBU(object):
 
     def __init__(self, type=None, atomlabel=None, coordinates=None,
                  pdbfile=None, xsdfile=None, ismetal=None):
-        #self.log = bookkeeping.Log()
-
         # index is used to keep track of the SBU's order when building
         # new structures.
         self.index = None
@@ -283,7 +381,6 @@ class SBU(object):
 
         if len(self.anglevect) == 0:
             sys.exit(0)
-            #self.log.error("Error, no angle vectors read in input")
         self.connect_vector = array(self.connect_vector)
         self.connectpoints = array(self.connectpoints)
         self.anglevect = array(self.anglevect)
@@ -475,41 +572,73 @@ class Structure(object):
         self.pbc = Cell() 
         # the list mof keeps track of all the SBUs
         self.mof = []
-        # initialize logging for this MOF
-        self.log = bookkeeping.Log()
+        # keep track of the most recent string
+        self.string = ""
         # list to keep track of bonding between SBU's
         self.connectivity = []
+        # maxsbu is the max number of sbus before termination..
+        self.maxsbu = 99
         # list of SBU's
         self.sbu_array = sbu_array
         for i, j in enumerate(self.sbu_array):
             j.index = i
 
-    def init_string_check(self, string):
+    def try_iterate_string(self, string):
         """check whether a string will form an appropriate bond"""
-        strlist = string.split("-")
-        sbu1 = int(strlist[0])
-        bond1 = int(strlist[1])
-        sbutype2 = int(strlist[2])
-        bond2 = int(strlist[3])
-        iangle = int(strlist[4])
+        values = string.split("-")
+        xarray = [int(i) for i in values]
+        isbu = xarray[0]
+        ibond = xarray[1]
+        nsbu = xarray[2]
+        nbond = xarray[3]
+        nangle = xarray[4]
+        xarray.reverse()
 
+        maxisbu = self.maxsbu # isbu will be continually growing.
+        if isbu >= len(self.mof):
+            return False
+        maxibond = len(self.mof[isbu].connectpoints)
+        maxnsbu = len(self.sbu_array)
+        maxnbond = len(self.sbu_array[nsbu].connectpoints)
+        if self.mof[isbu].ismetal:
+            maxnangle = len(self.sbu_array[nsbu].connectangles[nbond])
+        else:
+            maxnangle = len(self.mof[isbu].connectangles[ibond])
+        # reversed from string order for iteration purposes
+        maxarray = [maxnangle, maxnbond, maxnsbu, maxibond, maxisbu]
+        # assume only one type of bond (correct for both BTC and Cu-paddlewheel)
+        maxarray = [maxnangle, 1, maxnsbu, maxibond, 99]
+
+        # iterate the string
+        for ival, value in enumerate(xarray):
+            if value == (maxarray[ival]-1):
+                xarray[ival] = 0
+            else: 
+                xarray[ival] += 1
+                self.string =  "%i-%i-%i-%i-%i"%(tuple(xarray[::-1]))
+                break
+        if isbu == maxisbu:
+            # TODO(pboyd): Raise flag for termination.
+            return False
+        xarray.reverse()
+        if xarray[0] >= len(self.mof):
+            return False
         # TODO(pboyd): further checks?
-
-        # is the sbu1 index greater than the MOF length?
-        if sbu1 >= len(self.mof):
-            return False
         # not a metal to organic bond?
-        if self.sbu_array[sbutype2].ismetal == self.mof[sbu1].ismetal:
-            return False
+        falsetest2 = self.sbu_array[xarray[2]].ismetal == \
+                        self.mof[xarray[0]].ismetal
         # existing SBU is already bonded?
-        if self.connectivity[sbu1][bond1] is not None:
-            return False
+        falsetest3 = self.connectivity[xarray[0]][xarray[1]] is not None
 
-        return True
+        if (falsetest2) or (falsetest3):
+            return False
+        else:
+            return True 
 
     def apply_string(self, string):
         """applies the directions from a string"""
 
+        self.string = string
         strlist = string.split("-")
         sbu1 = int(strlist[0])
         bond1 = int(strlist[1])
@@ -531,6 +660,7 @@ class Structure(object):
         bond1 = int(strlist[1])
         sbu2 = len(self.mof) - 1
         bond2 = int(strlist[3])
+        # FIXME(pboyd): overlap not returning true in some cases.
         if self.overlap():
             return True
         return False
@@ -555,15 +685,12 @@ class Structure(object):
         # note, may be a problem if bonds are close but not exactly
         # anti-parallel
         bonds = self.antiparallel_bonds(sbu_ind1)
-        # remove metal-metal bonds or organic-organic bonds
-        bonds = self.remove_like_sbus(sbu_ind1, bonds)
-     
         # check to see if any bonds are formed
         if not bonds:
-            self.log.info("No new bonds formed with SBU %i"%(sbu_ind1))
+            info("No new bonds formed with SBU %i"%(sbu_ind1))
             return
 
-        # check for alignment (angle_vect + angles)??
+        # TODO(pboyd):check for alignment (angle_vect + angles)??
 
         # generate vectors for all the eligible bonds 
         bondvects = self.gen_bond_vectors(sbu_ind1, bonds)
@@ -573,18 +700,24 @@ class Structure(object):
         for bond in bondlist:
             if length(bondvects[bond]) <= tol:
                 # bonds are close
-                self.log.info("Local bond found between "+
+                info("Local bond found between "+
                         "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
                         "and SBU %i, bond %i."%(bond[1][0],bond[1][1]))
                 self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
                                bond[1][1], False)
-                del bonds[bond[0]]
+                try:
+                    del bonds[bond[0]]
+                except:
+                    info("Tried to bond SBU %i bond %i to SBU %i "
+                         %(sbu_ind1, bond[0], bond[1][0]) +
+                         "bond %i, but it has already been bonded."
+                         %(bond[1][1]))
 
         bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
         # check for possible periodic boundary
         for bond in bondlist:
             if self.pbc.valid_vector(bondvects[bond]):
-                self.log.info("New periodic boundary formed between "+
+                info("New periodic boundary formed between "+
                     "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
                     "and SBU %i, bond %i "%(bond[1][0],bond[1][1])+
                     " with the vector (%f, %f, %f)."%(tuple(bondvects[bond])))
@@ -593,7 +726,13 @@ class Structure(object):
                 self.pbc.add_vector(bondvects[bond])
                 self.pbc.origins[self.pbc.index] = \
                         self.mof[sbu_ind1].connectpoints[bond[0]][:]
-                del bonds[bond[0]]
+                try:
+                    del bonds[bond[0]]
+                except:
+                    info("Tried to bond SBU %i bond %i to SBU %i "
+                         %(sbu_ind1, bond[0], bond[1][0]) +
+                         "bond %i, but it has already been bonded."
+                         %(bond[1][1]))
 
         bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
 
@@ -601,33 +740,38 @@ class Structure(object):
         for bond in bondlist:
             pbc_shifted = self.apply_pbc(bondvects[bond])
             if length(pbc_shifted) <= tol:
-                self.log.info("Local bond found between " +
+                info("Local bond found between " +
                     "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
                     "and SBU %i, bond %i."%(bond[1][0],bond[1][1])+
                     " Found with the application of pbc's.")
                 self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
                               bond[1][1], True)
-                del bonds[bond[0]]
+                try:
+                    del bonds[bond[0]]
+                except:
+                    info("Tried to bond SBU %i bond %i to SBU %i "
+                         %(sbu_ind1, bond[0], bond[1][0]) +
+                         "bond %i, but it has already been bonded."
+                         %(bond[1][1]))
 
         # announce connections which did not form bonds
         bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
         if bondlist is not None:
             for bond in bondlist:
                 pbc_shifted = self.apply_pbc(bondvects[bond])
-                print bondvects[bond], pbc_shifted
                 if self.remote_attach_sbus(pbc_shifted):
-                    self.log.info("Remote bond found between " +
+                    info("Remote bond found between " +
                         "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
                         "and SBU %i, bond %i."%(bond[1][0],bond[1][1])+
                         " Found between existing pbc's.")
                     self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
                               bond[1][1], True)
                 else:
-                    self.log.info("Nothing was done between "+
+                    info("Nothing was done between "+
                         "SBU %i, bond %i, "%(sbu_ind1, bond[0]) +
                         "and SBU %i, bond %i. "%(bond[1][0], bond[1][1])+
                         "Even though they had parallel alignment.")
-                    self.log.info("(%f, %f, %f)"%(tuple(bondvects[bond])))
+                    info("(%f, %f, %f)"%(tuple(bondvects[bond])))
 
     def remove_like_sbus(self, sbu_ind1, bonds):
         """
@@ -730,16 +874,17 @@ class Structure(object):
         bonding_dic = {}
         
         for sbu2 in mofscan:
-            bonds2 = [i for i in range(len(self.connectivity[sbu2]))
+            if self.mof[sbu1].type != self.mof[sbu2].type:
+                bonds2 = [i for i in range(len(self.connectivity[sbu2]))
                       if self.connectivity[sbu2][i] is None]
-            for bond2 in bonds2:
-                for bond1 in bonds:
-                    vect1 = self.mof[sbu1].connect_vector[bond1]
-                    vect2 = self.mof[sbu2].connect_vector[bond2]
-                    # note the tolerance here will dictate how many
-                    # structures will be found
-                    if antiparallel_test(vect1, vect2, 1e-1):
-                        bonding_dic.setdefault(bond1,[]).append([sbu2,bond2])
+                for bond2 in bonds2:
+                    for bond1 in bonds:
+                        vect1 = self.mof[sbu1].connect_vector[bond1]
+                        vect2 = self.mof[sbu2].connect_vector[bond2]
+                        # note the tolerance here will dictate how many
+                        # structures will be found
+                        if antiparallel_test(vect1, vect2, 1e-1):
+                            bonding_dic.setdefault(bond1,[]).append([sbu2,bond2])
         return bonding_dic
 
     def overlap(self, tol=None):
@@ -757,7 +902,8 @@ class Structure(object):
         coords = self.coordinate_dump()[1]
         for i in range(len(coords)):
             for j in range(i+1, len(coords)):
-                if length(coords[i], coords[j]) <= disttol:
+                dist = self.apply_pbc(coords[j] - coords[i])
+                if length(dist) <= disttol:
                     return True
 
         return False
@@ -781,9 +927,9 @@ class Structure(object):
     def add_new_sbu(self, sbu1, bond1, sbutype2, bond2, iangle):
         """adds a new sbutype2 to the growing MOF"""
 
-        self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
+        #self.xyz_debug()
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
 
         # use angle listed on organic species bond type
         if self.sbu_array[sbutype2].ismetal:
@@ -794,20 +940,20 @@ class Structure(object):
         self.mof.append(copy.deepcopy(self.sbu_array[sbutype2]))
         sbu2 = len(self.mof) - 1
         self.connectivity.append([None]*len(self.mof[sbu2].connectpoints))
-        self.log.info(
+        info(
             "Added %s, SBU %i, bond %i to SBU %i, %s bond %i."
             %(self.mof[sbu2].type, sbu2, bond2, sbu1,
               self.mof[sbu1].type, bond1))
-        self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
+        #self.xyz_debug()
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
+        #self.xyz_debug()
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
@@ -1410,8 +1556,9 @@ def cross(vector1, vector2):
 def main():
     """Default if run as an executable"""
 
-    choice = "iterative"
-    genstruct = Generate(choice)
+    # initialize logging 
+    Log()
+    genstruct = Generate()
 
 if __name__ == '__main__':
     main()

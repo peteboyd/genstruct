@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="latin1"?>
+<!DOCTYPE XSD []>
+<XSD Version="4.0">
+    <AtomisticTreeRoot ID="1" NumProperties="40" NumChildren="48">
+        <Property Name="AngleEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="BendBendEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="BendTorsionBendEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="BondEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="EFGAsymmetry" DefinedOn="Atom" Type="Double"/>
+        <Property Name="EFGQuadrupolarCoupling" DefinedOn="Atom" Type="Double"/>
+        <Property Name="ElectrostaticEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="FaceMillerIndex" DefinedOn="GrowthFace" Type="MillerIndex"/>
+        <Property Name="FacetTransparency" DefinedOn="GrowthFace" Type="Float"/>
+        <Property Name="Force" DefinedOn="Bondable" Type="CoDirection"/>
+        <Property Name="HydrogenBondEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="ImportOrder" DefinedOn="Bondable" Type="UnsignedInteger"/>
+        <Property Name="InversionEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="IsBackboneAtom" DefinedOn="Atom" Type="Boolean"/>
+        <Property Name="IsChiralCenter" DefinedOn="Atom" Type="Boolean"/>
+        <Property Name="IsOutOfPlane" DefinedOn="Atom" Type="Boolean"/>
+        <Property Name="LineExtentPadding" DefinedOn="BestFitLineMonitor" Type="Double"/>
+        <Property Name="LinkageGroupName" DefinedOn="Linkage" Type="String"/>
+        <Property Name="ListIdentifier" DefinedOn="PropertyList" Type="String"/>
+        <Property Name="NMRShielding" DefinedOn="Atom" Type="Double"/>
+        <Property Name="NonBondEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="NormalMode" DefinedOn="Bondable" Type="Direction"/>
+        <Property Name="NormalModeFrequency" DefinedOn="Bondable" Type="Double"/>
+        <Property Name="OrbitalCutoffRadius" DefinedOn="Bondable" Type="Double"/>
+        <Property Name="PlaneExtentPadding" DefinedOn="BestFitPlaneMonitor" Type="Double"/>
+        <Property Name="PotentialEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="QuantizationValue" DefinedOn="ScalarFieldBase" Type="Double"/>
+        <Property Name="RestraintEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="SeparatedStretchStretchEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="SimulationStep" DefinedOn="Trajectory" Type="Integer"/>
+        <Property Name="StretchBendStretchEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="StretchStretchEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="StretchTorsionStretchEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="TorsionBendBendEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="TorsionEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="TorsionStretchEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="ValenceCrossTermEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="ValenceDiagonalEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="VanDerWaalsEnergy" DefinedOn="ClassicalEnergyHolder" Type="Double"/>
+        <Property Name="_Stress" DefinedOn="SymmetrySystem" Type="Matrix"/>
+        <Atom3d ID="2" Name="O" XYZ="1.75549727386929,-0.180976453780225,-1.3761583197911" Connections="3,4" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.0520000041611507,-0.0160000017101954,0.0140000012635907,-0.0160000017101955,0.0510000020752026,-0.0160000017101951,0.0140000012635907,-0.0160000017101952,0.0510000020752029" Components="O"/>
+        <Atom3d ID="5" Name="O" XYZ="-1.75549727386931,0.180976453780275,-1.3761583197911" Connections="6,7" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.0520000041611504,-0.0160000017101954,-0.0140000012635896,-0.0160000017101954,0.051000002075203,0.0160000017101953,-0.0140000012635896,0.0160000017101953,0.0510000020752025" Components="O"/>
+        <Atom3d ID="8" Name="O" XYZ="-0.180976453780207,1.75549727386927,1.3761583197911" Connections="9,10" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.051000002075203,-0.0160000017101954,0.0160000017101958,-0.0160000017101954,0.0520000041611504,-0.0140000012635901,0.0160000017101958,-0.0140000012635901,0.0510000020752029" Components="O"/>
+        <Atom3d ID="11" Name="O" XYZ="0.180976453780293,-1.75549727386932,1.3761583197912" Connections="12,13" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.0510000020752026,-0.0160000017101955,-0.0160000017101947,-0.0160000017101954,0.0520000041611507,0.0140000012635903,-0.0160000017101947,0.0140000012635902,0.0510000020752025" Components="O"/>
+        <Atom3d ID="14" Name="O" XYZ="-1.75549727386931,0.180976453780275,1.3761583197911" Connections="15,16" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.0520000041611507,-0.0160000017101954,0.0140000012635907,-0.0160000017101955,0.0510000020752026,-0.0160000017101951,0.0140000012635907,-0.0160000017101952,0.0510000020752029" Components="O"/>
+        <Atom3d ID="17" Name="O" XYZ="1.75549727386929,-0.180976453780225,1.3761583197912" Connections="18,19" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.0520000041611504,-0.0160000017101954,-0.0140000012635896,-0.0160000017101954,0.051000002075203,0.0160000017101953,-0.0140000012635896,0.0160000017101953,0.0510000020752025" Components="O"/>
+        <Atom3d ID="20" Name="O" XYZ="0.180976453780293,-1.75549727386932,-1.3761583197911" Connections="21,22" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.051000002075203,-0.0160000017101954,0.0160000017101958,-0.0160000017101954,0.0520000041611504,-0.0140000012635901,0.0160000017101958,-0.0140000012635901,0.0510000020752029" Components="O"/>
+        <Atom3d ID="23" Name="O" XYZ="-0.180976453780207,1.75549727386927,-1.3761583197911" Connections="24,25" TemperatureType="Anisotropic" IsotropicTemperature="0.051" AnisotropicTemperature="0.0510000020752026,-0.0160000017101955,-0.0160000017101947,-0.0160000017101954,0.0520000041611507,0.0140000012635903,-0.0160000017101947,0.0140000012635902,0.0510000020752025" Components="O"/>
+        <Atom3d ID="26" Name="Cu" XYZ="0.929117768483593,0.929117768483575,3.5527136788005e-015" Connections="3,9,18,24,27" TemperatureType="Anisotropic" IsotropicTemperature="0.0313" AnisotropicTemperature="0.0330000017810475,-0.00910000091446597,2.11915784941764e-016,-0.00910000091446598,0.0330000017810475,-9.74426702521347e-017,2.17235998883469e-016,-8.98100563644262e-017,0.0279000008284691" Components="Cu"/>
+        <Atom3d ID="28" Name="Cu" XYZ="-0.929117768483508,-0.929117768483525,3.5527136788005e-015" Connections="6,12,15,21,27" TemperatureType="Anisotropic" IsotropicTemperature="0.0313" AnisotropicTemperature="0.0330000017810475,-0.00910000091446597,2.11915784941764e-016,-0.00910000091446598,0.0330000017810475,-9.74426702521347e-017,2.17235998883469e-016,-8.98100563644262e-017,0.0279000008284691" Components="Cu"/>
+        <Atom3d ID="29" Name="Z" XYZ="2.00800152476098,-2.00800152476101,-3.17242710539031" Connections="30" TemperatureType="Anisotropic" IsotropicTemperature="0.04" AnisotropicTemperature="0.0390000031208627,-0.00100000010688757,0.00400000042754914,-0.00100000010688758,0.0390000031208626,-0.00400000042754878,0.00400000042754918,-0.00400000042754879,0.0430000040140729" Components="Zn"/>
+        <Atom3d ID="31" Name="C" XYZ="1.23285228770119,-1.23285228770122,-1.8097641452613" Connections="4,22" TemperatureType="Anisotropic" IsotropicTemperature="0.039" AnisotropicTemperature="0.042000001928125,-0.00600000040849276,2.6238370200507e-016,-0.00600000040849274,0.042000001928125,-6.85351298282399e-017,2.72878440221551e-016,-7.75357019257641e-017,0.0340000038669952" Components="C"/>
+        <Atom3d ID="32" Name="Z" XYZ="-2.008001524761,2.00800152476096,-3.17242710539031" Connections="33" TemperatureType="Anisotropic" IsotropicTemperature="0.04" AnisotropicTemperature="0.0390000031208625,-0.00100000010688754,-0.00400000042754849,-0.00100000010688755,0.0390000031208627,0.00400000042754888,-0.0040000004275485,0.00400000042754889,0.0430000040140728" Components="Zn"/>
+        <Atom3d ID="34" Name="C" XYZ="-1.23285228770121,1.23285228770117,-1.8097641452613" Connections="7,25" TemperatureType="Anisotropic" IsotropicTemperature="0.039" AnisotropicTemperature="0.042000001928125,-0.00600000040849276,2.55234743930244e-016,-0.00600000040849275,0.042000001928125,-8.40426090265717e-017,2.76347887173505e-016,-6.01884671659961e-017,0.0340000038669952" Components="C"/>
+        <Atom3d ID="35" Name="Z" XYZ="-2.00800152476102,2.00800152476095,3.17242710539036" Connections="36" TemperatureType="Anisotropic" IsotropicTemperature="0.04" AnisotropicTemperature="0.0390000031208627,-0.00100000010688754,0.00400000042754917,-0.00100000010688755,0.0390000031208626,-0.00400000042754876,0.00400000042754918,-0.00400000042754878,0.0430000040140729" Components="Zn"/>
+        <Atom3d ID="37" Name="C" XYZ="-1.23285228770121,1.23285228770117,1.8097641452613" Connections="10,16" TemperatureType="Anisotropic" IsotropicTemperature="0.039" AnisotropicTemperature="0.042000001928125,-0.00600000040849276,2.5707449949168e-016,-0.00600000040849276,0.042000001928125,-7.03748853896763e-017,2.54113272308079e-016,-1.20586998502911e-016,0.0340000038669952" Components="C"/>
+        <Atom3d ID="38" Name="Z" XYZ="2.00800152476098,-2.00800152476101,3.17242710539031" Connections="39" TemperatureType="Anisotropic" IsotropicTemperature="0.04" AnisotropicTemperature="0.0390000031208626,-0.00100000010688757,-0.00400000042754849,-0.00100000010688756,0.0390000031208627,0.00400000042754889,-0.00400000042754848,0.00400000042754888,0.0430000040140728" Components="Zn"/>
+        <Atom3d ID="40" Name="C" XYZ="1.23285228770119,-1.23285228770112,1.8097641452613" Connections="13,19" TemperatureType="Anisotropic" IsotropicTemperature="0.039" AnisotropicTemperature="0.042000001928125,-0.00600000040849275,2.80134124447731e-016,-0.00600000040849275,0.042000001928125,-8.68988041247132e-017,2.63083351219502e-016,-8.03918970239056e-017,0.0340000038669952" Components="C"/>
+        <Bond ID="3" Connects="26,2"/>
+        <Bond ID="4" Connects="2,31" Type="Aromatic"/>
+        <Bond ID="6" Connects="28,5"/>
+        <Bond ID="7" Connects="5,34" Type="Aromatic"/>
+        <Bond ID="9" Connects="26,8"/>
+        <Bond ID="10" Connects="8,37" Type="Aromatic"/>
+        <Bond ID="12" Connects="28,11"/>
+        <Bond ID="13" Connects="11,40" Type="Aromatic"/>
+        <Bond ID="15" Connects="28,14"/>
+        <Bond ID="16" Connects="14,37" Type="Aromatic"/>
+        <Bond ID="18" Connects="26,17"/>
+        <Bond ID="19" Connects="17,40" Type="Aromatic"/>
+        <Bond ID="21" Connects="28,20"/>
+        <Bond ID="22" Connects="20,31" Type="Aromatic"/>
+        <Bond ID="24" Connects="26,23"/>
+        <Bond ID="25" Connects="23,34" Type="Aromatic"/>
+        <Bond ID="27" Connects="26,28"/>
+        <Molecule ID="41" NumChildren="10" Name="Sketch 5" XYZ="0,0,0">
+            <Atom3d ID="42" Name="X" DisplayStyle="Line" XYZ="1.56477411785779,-1.56477411785782,2.3932615700002" Connections="43,39" Components="Xe"/>
+            <SymmetryTransformer ID="44" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="45" Objects="42" EventMask="13"/>
+            </SymmetryTransformer>
+            <Atom3d ID="46" Name="Y" DisplayStyle="Line" XYZ="0.842343862592593,-2.25598988679623,2.4110178941753" Connections="43" Components="Y"/>
+            <Bond ID="43" Connects="42,46"/>
+            <SymmetryTransformer ID="47" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="48" Objects="46" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="49" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="50" Objects="42,46" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="51" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="52" Objects="42" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="53" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="54" Objects="46" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="55" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="56" Objects="42,46" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="57" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="58" Objects="42,46" EventMask="13"/>
+            </SymmetryTransformer>
+        </Molecule>
+        <Molecule ID="59" NumChildren="9" Name="Sketch 6" XYZ="0,0,0">
+            <Atom3d ID="60" Name="X" DisplayStyle="Line" XYZ="-1.56477411785781,1.56477411785788,2.3932615700002" Connections="61,36" Components="Xe"/>
+            <SymmetryTransformer ID="62" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="63" Objects="60" EventMask="13"/>
+            </SymmetryTransformer>
+            <Atom3d ID="64" Name="Y" DisplayStyle="Line" XYZ="-0.842343862592607,2.25598988679628,2.4110178941753" Connections="61" Components="Y"/>
+            <Bond ID="61" Connects="60,64"/>
+            <SymmetryTransformer ID="65" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="66" Objects="60,64" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="67" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="68" Objects="64" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="69" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="70" Objects="64" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="71" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="72" Objects="64" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="73" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="74" Objects="60,64" EventMask="13"/>
+            </SymmetryTransformer>
+        </Molecule>
+        <Molecule ID="75" NumChildren="8" Name="Sketch 7" XYZ="0,0,0">
+            <Atom3d ID="76" Name="X" DisplayStyle="Line" XYZ="-1.56477411785781,1.56477411785778,-2.3932615700002" Connections="77,33" Components="Xe"/>
+            <SymmetryTransformer ID="78" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="79" Objects="76" EventMask="13"/>
+            </SymmetryTransformer>
+            <Atom3d ID="80" Name="Y" DisplayStyle="Line" XYZ="-2.25598988679631,0.842343862592575,-2.4110178941753" Connections="77" Components="Y"/>
+            <Bond ID="77" Connects="76,80"/>
+            <SymmetryTransformer ID="81" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="82" Objects="80" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="83" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="84" Objects="80" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="85" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="86" Objects="76,80" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="87" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="88" Objects="76,80" EventMask="13"/>
+            </SymmetryTransformer>
+        </Molecule>
+        <Molecule ID="89" NumChildren="7" Name="Sketch 8" XYZ="0,0,0">
+            <Atom3d ID="90" Name="X" DisplayStyle="Line" XYZ="1.56477411785779,-1.56477411785782,-2.3932615700002" Connections="91,30" Components="Xe"/>
+            <SymmetryTransformer ID="92" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="93" Objects="90" EventMask="13"/>
+            </SymmetryTransformer>
+            <Atom3d ID="94" Name="Y" DisplayStyle="Line" XYZ="2.25598988679629,-0.842343862592625,-2.4110178941753" Connections="91" Components="Y"/>
+            <Bond ID="91" Connects="90,94"/>
+            <SymmetryTransformer ID="95" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="96" Objects="94" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="97" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="98" Objects="94" EventMask="13"/>
+            </SymmetryTransformer>
+            <SymmetryTransformer ID="99" Name="MeasurementFragment" NumTriggerSets="1">
+                <MonitorTriggerSet ID="100" Objects="90,94" EventMask="13"/>
+            </SymmetryTransformer>
+        </Molecule>
+        <SymmetryTransformer ID="101" Name="MeasurementFragment" NumTriggerSets="1">
+            <MonitorTriggerSet ID="102" Objects="2,31,26,20,28,14,37,11,23,34,17,8,5,40,29,32,35,38,42,46,60,64,76,80,90,94" EventMask="13"/>
+        </SymmetryTransformer>
+        <Bond ID="39" Connects="42,38"/>
+        <Bond ID="36" Connects="60,35"/>
+        <Bond ID="33" Connects="76,32"/>
+        <Bond ID="30" Connects="90,29"/>
+        <SymmetryTransformer ID="103" Name="MeasurementFragment" NumTriggerSets="1">
+            <MonitorTriggerSet ID="104" Objects="35" EventMask="13"/>
+        </SymmetryTransformer>
+        <SymmetryTransformer ID="105" Name="MeasurementFragment" NumTriggerSets="1">
+            <MonitorTriggerSet ID="106" Objects="38" EventMask="13"/>
+        </SymmetryTransformer>
+        <SymmetryTransformer ID="107" Name="MeasurementFragment" NumTriggerSets="1">
+            <MonitorTriggerSet ID="108" Objects="29" EventMask="13"/>
+        </SymmetryTransformer>
+        <SymmetryTransformer ID="109" Name="MeasurementFragment" NumTriggerSets="1">
+            <MonitorTriggerSet ID="110" Objects="32" EventMask="13"/>
+        </SymmetryTransformer>
+    </AtomisticTreeRoot>
+</XSD>

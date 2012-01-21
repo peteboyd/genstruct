@@ -7,89 +7,86 @@ reads and writes files, sets up logging
 import logging
 import sys
 import textwrap
+import copy
 
 class Log:
 
-    def __init__(self, iter=None):
-
-        if iter is None:
-            self.iter = 1
+    def __init__(self, file=None):
+        if file is None:
+            self.file = "genstruct.out"
         else:
-            self.iter = iter
-
-        self.logfile = logging.FileHandler(filename="genstruct.out")
-        self.console = logging.StreamHandler(sys.stdout)
-        self.init_logger()
+            self.file = file
+        self.quiet = True 
+        self.verbose = False
+        self._init_logging()
         # set up writing to file and terminal
 
-    def init_logger(self):
-        # This is the logging handler
-        self.logger = logging.getLogger('SBU building iteration %-6i'
-                           %self.iter)
+    def _init_logging(self):
+        if self.quiet:
+            stdout_level = logging.ERROR
+            file_level = logging.INFO
+        elif self.verbose:
+            stdout_level = logging.DEBUG
+            file_level = logging.DEBUG
+        else:
+            stdout_level = logging.INFO
+            file_level = logging.INFO
 
-        # for now, keep as verbose
-        stdout_level = logging.DEBUG
-        file_level = logging.DEBUG
+        logging.basicConfig(level=file_level,
+                            format='[%(asctime)s] %(levelname)s %(message)s',
+                            datefmt='%Y%m%d %H:%M:%S',
+                            filename=self.file,
+                            filemode='a')
+       
+        logging.addLevelName(10, '--')
+        logging.addLevelName(20, '>>')
+        logging.addLevelName(30, '**')
+        logging.addLevelName(40, '!!')
+        logging.addLevelName(50, 'XX')
 
-        self.long_format = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s: %(message)s',
-                datefmt='%m/%d/%Y %I:%M:%S %p')
-        self.time_format = logging.Formatter(
-                '%(asctime)s - %(levelname)s: %(message)s',
-                datefmt='%m/%d/%Y %I:%M:%S %p')
-        self.reduced_format = logging.Formatter(
-                '%(levelname)s: %(message)s')
-        self.message = logging.Formatter(
-                '%(message)s')
-        
-        # set up verbosity level
-        self.console.setLevel(stdout_level)
-        self.logfile.setLevel(file_level)
-        self.logger.setLevel(stdout_level)
+        console = ColouredConsoleHandler(sys.stdout)
+        console.setLevel(stdout_level)
+        console.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
+        logging.getLogger('').addHandler(console)
 
-        # initialize the format as time_format 
-        self.console.setFormatter(self.time_format)
-        self.logfile.setFormatter(self.time_format)
+class ColouredConsoleHandler(logging.StreamHandler):
+    """Makes colourised and wrapped output for the console."""
+    def emit(self, record):
+        """Colourise and emit a record."""
+        # Need to make a actual copy of the record
+        # to prevent altering the message for other loggers
+        myrecord = copy.copy(record)
+        levelno = myrecord.levelno
+        if levelno >= 50:  # CRITICAL / FATAL
+            front = '\033[30;41m'  # black/red
+            text = '\033[30;41m'  # black/red
+        elif levelno >= 40:  # ERROR
+            front = '\033[30;41m'  # black/red
+            text = '\033[1;31m'  # bright red
+        elif levelno >= 30:  # WARNING
+            front = '\033[30;43m'  # black/yellow
+            text = '\033[1;33m'  # bright yellow
+        elif levelno >= 20:  # INFO
+            front = '\033[30;42m'  # black/green
+            text = '\033[1m'  # bright
+        elif levelno >= 10:  # DEBUG
+            front = '\033[30;46m'  # black/cyan
+            text = '\033[0m'  # normal
+        else:  # NOTSET and anything else
+            front = '\033[0m'  # normal
+            text = '\033[0m'  # normal
 
-        # add both the stdout and log file to the logger
-        self.logger.addHandler(self.console)
-        self.logger.addHandler(self.logfile)
+        myrecord.levelname = '%s%s\033[0m' % (front, myrecord.levelname)
+        myrecord.msg = textwrap.fill(
+            myrecord.msg, initial_indent=text, width=76,
+            subsequent_indent='\033[0m   %s' % text) + '\033[0m'
+        logging.StreamHandler.emit(self, myrecord)
 
-    def debug(self, msg, format = None):
-        """Send DEBUG to the logging handlers"""
-        msg = textwrap.wrap(msg)
-        if format is not None:
-            self.console.setFormatter(format)
-            self.logfile.setFormatter(format)
-        for line in msg:
-            self.logger.debug(line)
-
-    def info(self, msg, format = None):
-        """Send INFO to the logging handlers"""
-        msg = textwrap.wrap(msg)
-        if format is not None:
-            self.console.setFormatter(format)
-            self.logfile.setFormatter(format)
-        for line in msg:
-            self.logger.info(line)
-
-    def warn(self, msg, format = None):
-        """Send WARN to the logging handlers"""
-        msg = textwrap.wrap(msg)
-        if format is not None:
-            self.console.setFormatter(format)
-            self.logfile.setFormatter(format)
-        for line in msg:
-            self.logger.warning(line)
-
-    def error(self, msg, format = None):
-        """Send ERROR to the logging handlers"""
-        msg = textwrap.wrap(msg)
-        if format is not None:
-            self.console.setFormatter(format)
-            self.logfile.setFormatter(format)
-        for line in msg:
-            self.logger.error(line)
-
-        sys.exit(0)
+class Time:
+    """
+    Class to time executions
+    """
+    from time import time
+    def __init__(self):
+        self.timer = 0.
 
