@@ -16,7 +16,7 @@ import copy
 from numpy import array
 from elements import WEIGHT, ATOMIC_NUMBER
 import sample
-from bookkeeping import Log
+from bookkeeping import Log, Time
 from random import random, uniform, randrange, choice
 from datetime import date
 from logging import warning, debug, error, info, critical
@@ -36,7 +36,6 @@ class Generate(object):
         # moflib is the list containing MOF structures for extensive
         # branching
         self.moflib = []
-        self.generation()
         # string history stores how the MOF was built
         self.stringhist = []
         # max number of sbus in a structure
@@ -51,27 +50,31 @@ class Generate(object):
         # TODO(pboyd): randomly perturb the coordinates
 
     def branched_generation(self):
-        dataset = [SBU("Zn4O", xsdfile="Zn4O"),
+        dataset = [SBU("Copper paddlewheel", xsdfile="Cu_paddlewheel"),
                    SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
-
         structcount = 0
+        # initialize timing
+        stopwatch = Time()
         # Start the string off at "0-0-0-0-0"
         string = "0-0-0-0-0"
         self.stringhist = [string]
         maxstring = self.setmax(dataset)
+        # start the timer
+        stopwatch.timestamp()
         # only one structure generated (a "leaf")
         struct = Structure(dataset)
         self.random_insert(0, dataset, struct)
         done = False
         while not done:
-            stringtype = self.valid_string(string, struct, database)
+            stringtype = self.valid_string(string, struct, dataset)
             ints = [int(i) for i in string.split("-")]
             if stringtype == "True":
                 info("Applying %s"%(string))
-                debug("Number of SBUs in structure: %i"%(len(struct)))
-                sbu2 = len(newstruct.mof)
+                debug("Number of SBUs in structure: %i"%
+                        (len(struct.mof)))
+                sbu2 = len(struct.mof)
                 struct.apply_string(string)
-                if struct.bad_addition(string):
+                if struct.bad_addition(string, struct):
                     warning("SBU overlap occured")
                     struct.mof.pop()
                 else:
@@ -92,22 +95,25 @@ class Generate(object):
                 
                 if structcount == 1:
                     done = True
-
+                    # stop the timer
+                    stopwatch.timestamp()
+                    info("Structure generated! Timing reports "+
+                         "%6.4f seconds."%(stopwatch.timer))
             elif stringtype == "Backup":
                 # back to the previous string
                 string = self.stringhist[ints[0]]
-                self.readjust(struct, string)
+                self.readjust(struct, string, dataset)
 
             string = self.iterate_string(string, maxstring)
 
-    def readjust(struct, string, dataset):
+    def readjust(self, struct, string, dataset):
         """
         Restart the structure generation up to the point where
         the string was successful
         """
         ints = [int(i) for i in string.split("-")]
 
-        sbu0 = copy.deepcopy(sruct.mof[0])
+        sbu0 = copy.deepcopy(struct.mof[0])
         # Reset struct to a blank slate
         struct.reset() 
         struct.mof.append(sbu0)
@@ -133,6 +139,11 @@ class Generate(object):
             return "Backup"
 
         if ints[1] >= len(struct.mof[ints[0]].connectpoints):
+            bondcount = [i for i in struct.connectivity[ints[0]] if
+                         i is not None]
+            if len(bondcount) <= 1:
+                return "Backup"
+
             return "False"
 
         if ints[2] >= len(database):
@@ -144,10 +155,10 @@ class Generate(object):
         if struct.connectivity[ints[0]][ints[1]] is not None:
             return "False"
 
-        if struct.mof[ints[0]].ismetal == database[ints[2]].istmetal:
+        if struct.mof[ints[0]].ismetal == database[ints[2]].ismetal:
             return "False"
 
-        if struct.mof[ints[0]].istmetal:
+        if struct.mof[ints[0]].ismetal:
             if ints[4] >= len(database[ints[2]].connectangles[ints[3]]):
                 return "False"
         else:
@@ -167,15 +178,13 @@ class Generate(object):
                 liststring[-i-1] = 0
             else:
                 liststring[-i-1] += 1
-
-        return "%i-%i-%i-%i-%i"%(tuple(liststring))
-
+                return "%i-%i-%i-%i-%i"%(tuple(liststring))
 
     def setmax(self, dataset):
         """
         Set maximum string
         """
-        maxangle, maxbond = 0, 0, 0
+        maxangle, maxbond = 0, 0
         maxsbu = len(dataset)
         for sbu in dataset:
             anglelen = max([len(i) for i in sbu.connectangles])
@@ -189,7 +198,7 @@ class Generate(object):
         """
         generates MOFs via string iteration
         """
-        dataset = [SBU("Zn4O", xsdfile="Zn4O"),
+        dataset = [SBU("Copper paddlewheel", xsdfile="Cu_paddlewheel"),
                    SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
 
         # call the Structure class with a set of SBU's and rules to
@@ -212,7 +221,7 @@ class Generate(object):
                     debug("Size of MOF array: %i"%(len(self.moflib)))
                     sbu2 = len(newstruct.mof)
                     newstruct.apply_string(struct.string)
-                    if newstruct.bad_addition(struct.string):
+                    if newstruct.bad_addition(struct.string, struct):
                         warning("SBU overlap occured")
                     else:
                         newstruct.join_sbus(dir[0], dir[1], sbu2, dir[3], False)
@@ -603,7 +612,7 @@ class Structure(object):
     def reset(self):
         sbuarray = self.sbu_array
         self.pbc = None
-        self.__init__(sbu_array)
+        self.__init__(sbuarray)
 
     def try_iterate_string(self, string):
         """check whether a string will form an appropriate bond"""
@@ -673,17 +682,17 @@ class Structure(object):
         # add sbu1 to sbu2
         self.add_new_sbu(sbu1, bond1, sbutype2, bond2, iangle)
 
-    def bad_addition(self, string):
+    def bad_addition(self, string, struct):
         """apply checks to see if the new addition is valid"""
         strlist = string.split("-")
 
-        # assumes sbu1 is the newest addition to the MOF
+        # assumes sbu2 is the newest addition to the MOF
         sbu1 = int(strlist[0])
         bond1 = int(strlist[1])
         sbu2 = len(self.mof) - 1
         bond2 = int(strlist[3])
         # FIXME(pboyd): overlap not returning true in some cases.
-        if self.overlap():
+        if self.overlap(sbu2):
             return True
         return False
 
@@ -909,7 +918,7 @@ class Structure(object):
                             bonding_dic.setdefault(bond1,[]).append([sbu2,bond2])
         return bonding_dic
 
-    def overlap(self, tol=None):
+    def overlap(self, sbu1, tol=None):
         """
         checks if one of the SBUs in structure (istruct) is
         overlapping with the other SBUs
@@ -920,13 +929,20 @@ class Structure(object):
         else:
             disttol = .5
 
+        for sbu2 in self.mof:
+            for atom2 in sbu2.coordinates:
+                for atom1 in self.mof[sbu1].coordinates:
+                    dist = self.apply_pbc(atom1 - atom2)
+                    if length(dist) <= tol:
+                        return True
         # apply periodic boundary conditions to the coordinates?
-        coords = self.coordinate_dump()[1]
-        for i in range(len(coords)):
-            for j in range(i+1, len(coords)):
-                dist = self.apply_pbc(coords[j] - coords[i])
-                if length(dist) <= disttol:
-                    return True
+        #coords = self.coordinate_dump()[1]
+        #for i in range(len(coords)):
+        #    for j in range(i+1, len(coords)):
+                #dist = self.apply_pbc(coords[j] - coords[i])
+        #        dist = (coords[j] - coords[i])
+        #        if length(dist) <= disttol:
+        #            return True
 
         return False
 
@@ -973,9 +989,9 @@ class Structure(object):
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        #self.xyz_debug()
-        #dump = self.coordinate_dump()
-        #write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
+        self.xyz_debug()
+        dump = self.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
@@ -1582,5 +1598,6 @@ def main():
     Log()
     genstruct = Generate()
 
+    genstruct.branched_generation()
 if __name__ == '__main__':
     main()

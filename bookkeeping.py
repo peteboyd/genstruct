@@ -16,8 +16,8 @@ class Log:
             self.file = "genstruct.out"
         else:
             self.file = file
-        self.quiet = True 
-        self.verbose = False
+        self.quiet = False
+        self.verbose = True 
         self._init_logging()
         # set up writing to file and terminal
 
@@ -86,7 +86,10 @@ class Time:
     """
     Class to time executions
     """
-    from time import time
     def __init__(self):
         self.timer = 0.
 
+    def timestamp(self):
+        from time import time
+        currtime = time()
+        self.timer = currtime - self.timer
