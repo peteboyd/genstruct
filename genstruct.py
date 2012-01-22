@@ -50,7 +50,11 @@ class Generate(object):
         # TODO(pboyd): randomly perturb the coordinates
 
     def branched_generation(self):
+<<<<<<< local
+        dataset = [SBU("linear Fe", xsdfile="linear_Fe"),
+=======
         dataset = [SBU("Copper paddlewheel", xsdfile="Cu_paddlewheel"),
+>>>>>>> other
                    SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
         structcount = 0
         # initialize timing
