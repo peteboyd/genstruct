@@ -50,11 +50,7 @@ class Generate(object):
         # TODO(pboyd): randomly perturb the coordinates
 
     def branched_generation(self):
-<<<<<<< local
         dataset = [SBU("linear Fe", xsdfile="linear_Fe"),
-=======
-        dataset = [SBU("Copper paddlewheel", xsdfile="Cu_paddlewheel"),
->>>>>>> other
                    SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
         structcount = 0
         # initialize timing
@@ -929,25 +925,18 @@ class Structure(object):
         """
         # distance tolerance in angstroms
         if tol is not None:
-            disttol = tol
+            tol = tol
         else:
-            disttol = .5
+            tol = .5
 
-        for sbu2 in self.mof:
+        mofrange = [i for i in range(len(self.mof)) if i != sbu1]
+        for sbu2 in mofrange:
+            sbu2 = self.mof[sbu2]
             for atom2 in sbu2.coordinates:
                 for atom1 in self.mof[sbu1].coordinates:
                     dist = self.apply_pbc(atom1 - atom2)
                     if length(dist) <= tol:
                         return True
-        # apply periodic boundary conditions to the coordinates?
-        #coords = self.coordinate_dump()[1]
-        #for i in range(len(coords)):
-        #    for j in range(i+1, len(coords)):
-                #dist = self.apply_pbc(coords[j] - coords[i])
-        #        dist = (coords[j] - coords[i])
-        #        if length(dist) <= disttol:
-        #            return True
-
         return False
 
     def coordinate_dump(self):
