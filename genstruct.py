@@ -13,6 +13,7 @@ import math
 import re
 import numpy as np
 import copy
+import os
 from numpy import array
 from elements import WEIGHT, ATOMIC_NUMBER
 import sample
@@ -33,13 +34,101 @@ class Generate(object):
    
     def __init__(self):
         
+        self.nstructs = 0
         # moflib is the list containing MOF structures for extensive
         # branching
         self.moflib = []
         # string history stores how the MOF was built
         self.stringhist = []
         # max number of sbus in a structure
-        self.nsbumax = 99
+        self.nsbumax = 200
+        # list to store strings
+        self.strings = []
+        self.outdir = "output/"
+
+        self.bondtypes = {}
+        self.gen_dir()
+
+    def gen_dir(self):
+        """creates directory for putting new MOF files"""
+        try:
+            os.mkdir(self.outdir)
+        except:
+            pass
+
+    def database_generation(self):
+        """Generates MOFs from a database of SBUs"""
+        database = Database()
+        database.build_databases()
+        for ind1, i in enumerate(database.metals):
+            for ind2, j in enumerate(database.organic):
+                for ind3, k in enumerate(database.fnlgrps):
+                    dataset = [SBU("metal",index=ind1, pdbfile=i), 
+                           SBU("org", index=ind2, pdbfile=j, ismetal=False,
+                               fnlgrp=k)]
+                    self.unique_bondtypes(dataset)
+                    print self.bondtypes
+                    sys.exit(0)
+                    self.branched_generation(dataset)
+
+                    #self.exhaustive_generation(dataset)
+
+    def unique_bondtypes(self, dataset):
+        """
+        Determine all the unique possible bonding which can occur
+        with the dataset
+        """
+        self.bondtypes={}
+        datalength = len(dataset)
+        # outter loops: sbus
+        bondtype = 0
+        for sbu1 in range(datalength):
+            for sbu2 in range(sbu1, datalength):
+                sbut1 = dataset[sbu1]
+                sbut2 = dataset[sbu2]
+                if sbut1.ismetal != sbut2.ismetal:
+                # middle loops: their bond types
+                    for int1, bondt1 in enumerate(sbut1.symmetrytype):
+                        for int2, bondt2 in enumerate(sbut2.symmetrytype):
+                            # inner loops: their angles
+                            for iang1, angt1 in enumerate(sbut1.connectangles[int1]):
+                                for iang2, angt2 in enumerate(sbut2.connectangles[int2]):
+                                    # check if the bond type already exists
+                                    arrayt = [[sbu1, bondt1, iang1],
+                                        [sbu2, bondt2, iang2]]
+                                    if not self.bondtype_exists(arrayt):
+                                        bondtype += 1
+                                        self.bondtypes[bondtype] = [
+                                            [sbu1, bondt1, iang1],
+                                            [sbu2, bondt2, iang2]]
+
+    def bondtype_exists(self, arrayt):
+        """
+        check for existance of unique bond type
+        """
+        if arrayt in [i for i in self.bondtypes.itervalues()]:
+            return True
+        else:
+            return False
+            
+
+    def generate_stringset(self, dataset):
+        """
+        Encode the set of strings to build a MOF
+        """
+        stringlist = []
+        count = 0
+        string = "0-0-0-0-0"
+        maxstring = self.setmax(dataset)
+        done=False
+        while not done:
+            if count == 1e5:
+                done = True    
+            self.strings.append(string)
+            string = self.iterate_string(string, maxstring)
+            count += 1
+
+        return
 
     def random_insert(self, isbu, dataset, struct):
         """
@@ -49,77 +138,130 @@ class Generate(object):
         struct.connectivity.append([None]*len(dataset[isbu].connectpoints))
         # TODO(pboyd): randomly perturb the coordinates
 
-    def branched_generation(self):
-        dataset = [SBU("linear Fe", xsdfile="linear_Fe"),
-                   SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
+    def branched_generation(self, dataset):
+
+        # generate a complete list of strings to sample
+        self.generate_stringset(dataset)
         structcount = 0
         # initialize timing
         stopwatch = Time()
-        # Start the string off at "0-0-0-0-0"
-        string = "0-0-0-0-0"
-        self.stringhist = [string]
-        maxstring = self.setmax(dataset)
-        # start the timer
-        stopwatch.timestamp()
         # only one structure generated (a "leaf")
+        done = False
         struct = Structure(dataset)
         self.random_insert(0, dataset, struct)
-        done = False
+        struct.xyz_debug()
+        dump = struct.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], struct.pbc.cell, struct.pbc.origins)
+        step = 0
+        # FIXME(pboyd): the indexing is not working as planned.
+        print dataset[0].index, dataset[1].index
+        # start the timer
+        stopwatch.timestamp()
         while not done:
+            string = self.strings[step]
             stringtype = self.valid_string(string, struct, dataset)
             ints = [int(i) for i in string.split("-")]
             if stringtype == "True":
                 info("Applying %s"%(string))
                 debug("Number of SBUs in structure: %i"%
-                        (len(struct.mof)))
+                    (len(struct.mof)))
                 sbu2 = len(struct.mof)
                 struct.apply_string(string)
                 if struct.bad_addition(string, struct):
                     warning("SBU overlap occured")
+                    # remove the SBU from the list, try an incremented
+                    # string.
                     struct.mof.pop()
+                    struct.connectivity.pop()
+
                 else:
                     struct.join_sbus(ints[0], ints[1], sbu2, ints[3], False)
                     struct.sbu_check(sbu2)
-                    self.stringhist.append(string)
-                    
+                    self.stringhist.append(step)
+
                 struct.pbc.complete_box()
-                if struct.saturated():
+                if struct.saturated() and struct.pbc.complete_box():
                     struct.final_coords()
                     struct.mof_reorient()
-                    struct.xyz_debug()
+                    final_coords = struct.getfinals()
                     dump = struct.coordinate_dump()
-                    write_pdb("final", dump[0], dump[1], struct.pbc.acell)
-                    write_xyz("final", dump[0], dump[1], 
-                          struct.pbc.cell, struct.pbc.origins)
+                    self.nstructs += 1
+                    filename = "%i_struct"%(self.nstructs)
+                    for i in dataset:
+                        filename = filename + "_%i"%(i.index)
+                    write_pdb(self.outdir+filename, dump[0], final_coords, 
+                              struct.pbc.acell)
+                    write_xyz(self.outdir+filename, dump[0], final_coords, 
+                        struct.pbc.cell, struct.pbc.origins)
                     structcount += 1
-                
-                if structcount == 1:
-                    done = True
                     # stop the timer
                     stopwatch.timestamp()
                     info("Structure generated! Timing reports "+
-                         "%6.4f seconds."%(stopwatch.timer))
-            elif stringtype == "Backup":
-                # back to the previous string
-                string = self.stringhist[ints[0]]
-                self.readjust(struct, string, dataset)
+                        "%6.4f seconds."%(stopwatch.timer))
+                    done = True
 
-            string = self.iterate_string(string, maxstring)
+                elif struct.saturated() and not struct.pbc.complete_box():
+                    info("No structure generated.  Not 3-periodic")
+                    done = True
+            step += 1
 
-    def readjust(self, struct, string, dataset):
+            if stringtype == "Backup":
+                #it = len(struct.mof)-2
+                #step = self.stringhist[it] + 1
+                done = True
+                # re-initialize the structure
+                #struct = Structure(dataset)
+                # re-apply the existing strings
+                #self.readjust(struct, it, dataset)
+
+            if step == 64000:
+                done = True
+
+    def generate_mofstrings(self, dataset):
+        """
+        Generate sequences of strings to build MOFs
+        """
+
+        stringset = []
+        # start by placing one in space by random_insert
+        stringset.append("0")
+        string = "0-0-0-0-0"
+        # iterate through strings with knowledge of bonds, types, etc..
+        done = False
+        iter = 0
+        while not done:
+            iter += 1
+
+            # keep track of which SBU# is which type
+            for strings in stringset:
+                # apply string if it is valid 
+                if self.teststring(string, strings):
+                    strings.append(string)
+
+            # iterate string
+            done = True
+
+        return stringset
+
+    def teststring(self, string, strings):
+        """
+        Check to see if the string can be applied to the set of
+        strings
+        """
+
+
+    def readjust(self, struct, it, dataset):
         """
         Restart the structure generation up to the point where
         the string was successful
         """
-        ints = [int(i) for i in string.split("-")]
-
-        sbu0 = copy.deepcopy(struct.mof[0])
         # Reset struct to a blank slate
-        struct.reset() 
-        struct.mof.append(sbu0)
-        for oldstring in self.stringhist[:ints[0]]:
+        struct.mof.append(copy.deepcopy(dataset[0]))
+        struct.connectivity.append([None]*len(dataset[0].connectpoints))
+        for oldstring in self.stringhist[:it]:
+            oldstring = self.strings[oldstring]
             newsbu = len(struct.mof)
-            oldints = oldstring.split("-")
+            oldints = [int(i) for i in oldstring.split("-")]
             # Rebuild with the good strings
             struct.apply_string(oldstring)
             struct.join_sbus(oldints[0], oldints[1], 
@@ -129,7 +271,8 @@ class Generate(object):
 
     def valid_string(self, string, struct, database):
         """
-        No fucking idea how this will work
+        determines whether a string will be valid for the next
+        addition of an SBU.
         """
         ints = [int(i) for i in string.split("-")]
         # all possibilities are exhausted without joining two SBUs
@@ -138,13 +281,27 @@ class Generate(object):
         if ints[0] >= len(struct.mof):
             return "Backup"
 
-        if ints[1] >= len(struct.mof[ints[0]].connectpoints):
+        # test to see if the string is at the last bond in the
+        # structure.
+        if ints[1] > len(struct.mof[ints[0]].connectpoints)-1:
             bondcount = [i for i in struct.connectivity[ints[0]] if
                          i is not None]
+            # this means that all bonds have been tried but none have
+            # succeeded in placing a new SBU.
             if len(bondcount) <= 1:
                 return "Backup"
+           
+            # this means that the string has gone too far.
+            if ints[1] >= len(struct.mof[ints[0]].connectpoints):
+                return "False"
 
-            return "False"
+        # TODO(pboyd): if no bond is made for one connection point 
+        # (ie, the string eventually goes beyond the bond without 
+        # attaching a SBU) then terminate the generation
+        if (ints[2] == len(database)-1) and \
+            (ints[3] == len(database[ints[2]].connect_vector) - 1):
+            if struct.connectivity[ints[0]][ints[1]] is None:
+                return "Backup"
 
         if ints[2] >= len(database):
             return "False"
@@ -172,72 +329,93 @@ class Generate(object):
         iterate the string according to the max
         """
         liststring = [int(i) for i in string.split("-")]
-
         for i, j in enumerate(reversed(liststring)):
             if j == maxstring[-i-1]:
                 liststring[-i-1] = 0
             else:
                 liststring[-i-1] += 1
                 return "%i-%i-%i-%i-%i"%(tuple(liststring))
-
+        
+        return "%i-%i-%i-%i-%i"%(tuple(liststring))
+ 
     def setmax(self, dataset):
         """
         Set maximum string
         """
         maxangle, maxbond = 0, 0
-        maxsbu = len(dataset)
+        maxsbu = len(dataset) - 1
         for sbu in dataset:
-            anglelen = max([len(i) for i in sbu.connectangles])
-            numbonds = len(sbu.connectpoints)
+            anglelen = max([(len(i)-1) for i in sbu.connectangles])
+            numbonds = len(sbu.connectpoints)-1
             maxangle = max(maxangle, anglelen)
             maxbond = max(maxbond, numbonds)
-
+            # TESTING PURPOSES
+            #maxbond = 1
+            #maxangle =1
         return([self.nsbumax, maxbond, maxsbu, maxbond, maxangle])
 
-    def exhaustive_generation(self):
+    def exhaustive_generation(self, dataset):
         """
-        generates MOFs via string iteration
+        generates MOFs via string iteration.
+        The code will first generate a list of strings, intelligently
+        built to generate structures based on the dataset.  Then each
+        set of strings will be attempted until 5 structures are built
+        or it runs out of strings.
         """
-        dataset = [SBU("Copper paddlewheel", xsdfile="Cu_paddlewheel"),
-                   SBU("tetrahedral", xsdfile="tetrahedral", ismetal=False)]
-
         # call the Structure class with a set of SBU's and rules to
         # attempt to build the MOF
         self.moflib.append(Structure(dataset))
         # Start the string off at "0-0-0-0-0"
-        self.moflib[0].string = "0-0-0-0-0"
+        string = "0-0-0-0-0"
         self.random_insert(0, dataset, self.moflib[0])
         done = False
+        # count the number of strings iterated 
         stringcount = 0
+        # count the number of structures generated
+        structcount = 0
+        maxstring = self.setmax(dataset)
+        stopwatch = Time()
+        stopwatch.timestamp()
         while not done:
-            stringcount+=1
             newlist = []
             for ind, struct in enumerate(self.moflib):
                 newstruct = self.pythonsuxcopy(struct)
-                if struct.try_iterate_string(struct.string):
-                    dir = [int(i) for i in struct.string.split("-")]
-                    info("Applying %s"%(struct.string))
+                if self.valid_string(string, newstruct, dataset) == "True":
+                    dir = [int(i) for i in string.split("-")]
+                    info("Applying %s"%(string))
                     debug("Number of SBUs in structure: %i"%(len(struct.mof)))
                     debug("Size of MOF array: %i"%(len(self.moflib)))
                     sbu2 = len(newstruct.mof)
-                    newstruct.apply_string(struct.string)
-                    if newstruct.bad_addition(struct.string, struct):
+                    newstruct.apply_string(string)
+                    if newstruct.bad_addition(string, struct):
                         warning("SBU overlap occured")
                     else:
                         newstruct.join_sbus(dir[0], dir[1], sbu2, dir[3], False)
                         newstruct.sbu_check(sbu2)
                         newlist.append(newstruct)
                 
-                newstruct.pbc.complete_box()
-                if newstruct.saturated():
+                if newstruct.saturated() and newstruct.pbc.complete_box():
                     newstruct.final_coords()
                     newstruct.mof_reorient()
-                    newstruct.xyz_debug()
-                    dump = newstruct.coordinate_dump()
-                    write_pdb("final", dump[0], dump[1], newstruct.pbc.acell)
-                    write_xyz("final", dump[0], dump[1], 
-                          newstruct.pbc.cell, newstruct.pbc.origins)
-                    done = True
+                    dump = struct.coordinate_dump()
+                    self.nstructs += 1
+                    filename = "%i_struct"%(self.nstructs)
+                    for i in dataset:
+                        filename = filename + "_%i"%(i.index)
+                    write_pdb(self.outdir+filename, dump[0], dump[1], 
+                              struct.pbc.acell)
+                    write_xyz(self.outdir+filename, dump[0], dump[1], 
+                        struct.pbc.cell, struct.pbc.origins)
+                    stopwatch.timestamp()
+                    info("Structure generated! Timing reports "+
+                        "%6.4f seconds."%(stopwatch.timer))
+                    structcount += 1
+                    if structcount == 5:
+                        done = True
+            if stringcount == 64000:
+                done = True
+            stringcount+=1
+            string = self.iterate_string(string, maxstring)
             [self.moflib.append(i) for i in newlist]
     def pythonsuxcopy(self, struct):
         """
@@ -258,26 +436,31 @@ class SBU(object):
     """
     """
 
-    def __init__(self, type=None, atomlabel=None, coordinates=None,
-                 pdbfile=None, xsdfile=None, ismetal=None):
+    def __init__(self, type=None, index=None, coordinates=None,
+                 pdbfile=None, xsdfile=None, ismetal=None, fnlgrp=None):
         # index is used to keep track of the SBU's order when building
         # new structures.
-        self.index = None
+        self.vectors = []
+        self.points = []
+        # each connective bond is assigned a type.  If bonds are 
+        # different they should have different types.
+        self.symmetrytype = []
+        # angles for possible rotations
+        self.connectangles = []
+        if index is not None:
+            self.index = index
+        else:
+            self.index = 0
         if type is not None:
             self.type = type
         else: 
             self.type = "Null"
-        if atomlabel is not None and coordinates is not None:
-            self.atomlabel = atomlabel
-            self.coordinates = array(coordinates)
-        else:
-            self.atomlabel = []
-            self.coordinates = []
+        self.atomlabel = []
+        self.coordinates = []
         if xsdfile is not None:
             self.from_xsd(xsdfile)
         if pdbfile is not None:
             self.from_pdb(pdbfile)
-        
         self.mass = 0. 
         # TODO(pboyd): change self.connect to something else
         # this is just the intramolecular connectivity matrix
@@ -291,8 +474,6 @@ class SBU(object):
         self.connectpoints = []
         # angle vectors used to align SBUs once bonded together
         self.anglevect = []
-        # angles for possible rotations
-        self.connectangles = []
 
         # Default metal
         if ismetal is not None:
@@ -321,6 +502,89 @@ class SBU(object):
         # TODO(pboyd): add possible linking types
         self.add_connect_vector()
 
+        # tack on functional groups
+        if fnlgrp is not None:
+            self.add_functional_group(fnlgrp)
+
+    def add_functional_group(self, fnlgrp):
+        """Adds functional group to the SBU"""
+
+        # determine the number of H's in the SBU
+        hydrogens = [i for i in range(len(self.atomlabel)) if 
+                        self.atomlabel[i] == "H"]
+
+        # chose a random number of H's to switch with fnl group
+        num = randrange(len(hydrogens))
+
+        # switch out the fnlgrp filename for the class 
+        fnlgrp = Functional_group(file=fnlgrp)
+
+        record = []
+        info("%i functional groups added"%(num))
+        # randomly choose the H's to switch and switch them
+        for i in range(num):
+            done = False
+            while not done:
+                h = randrange(len(hydrogens))
+                if hydrogens[h] not in record:
+                    #self.xyz_debug("history")
+                    self.switch(hydrogens[h], copy.deepcopy(fnlgrp))
+                    #self.xyz_debug("history")
+                    record.append(hydrogens[h])
+                    done = True
+
+        record.sort()
+        # remove the hydrogens from the SBU
+        for hydrogen in reversed(record):
+            self.coordinates = np.delete(self.coordinates, hydrogen, axis=0)
+            self.atomlabel.pop(hydrogen)
+
+    def switch(self, hydrogen, fnlgrp):
+        """ switch a hydrogen for a functional group"""
+        if len(self.bonding[hydrogen]) != 1:
+            error("Hydrogen bonded to more than one atom!")
+
+        atom = self.bonding[hydrogen][0]
+        info("adding functional group to atom %i"%(atom))
+        bondvector =  -1. * normalize(self.coordinates[hydrogen] - 
+                               self.coordinates[atom])
+        fnlgrp_vect = fnlgrp.connect_vector
+
+        self.points.append(self.coordinates[atom])
+        self.vectors.append(bondvector)
+
+        axis = rotation_axis(fnlgrp_vect, bondvector)
+        angle = calc_angle(bondvector, fnlgrp_vect)
+        self.rotation(fnlgrp, axis, angle)
+
+        # add to the SBU
+        shift = self.coordinates[atom] - fnlgrp.connectpoint
+
+        fnlgrp.coordinates = fnlgrp.coordinates + shift  - \
+                            fnlgrp.connect_vector
+
+        self.coordinates = np.concatenate((self.coordinates,
+                fnlgrp.coordinates), axis=0)
+        for i in fnlgrp.atomlabel:
+            self.atomlabel.append(i)
+        self.points.append(fnlgrp.connectpoint + shift)
+        self.vectors.append(fnlgrp.connect_vector)
+
+    def rotation(self, fnlgrp, axis, angle):
+        """
+        rotates a functional group to be properly added to the SBU
+        """
+        R = rotation_matrix(axis, angle)
+        # R rotates these points about the origin, hence a correction
+        # must be applied if the position of rotation is not the 
+        # origin, using rotpoint * (I - R) 
+        rotpoint = fnlgrp.connectpoint
+        #rotpoint = np.zeros(3)
+        C = array(rotpoint * (np.identity(3) - R))[0]
+        fnlgrp.coordinates = array(fnlgrp.coordinates * R) + C
+        fnlgrp.connectpoint = array(fnlgrp.connectpoint * R)[0] + C
+        fnlgrp.connect_vector = array(fnlgrp.connect_vector * R)[0]
+
     def from_pdb(self, filename):
         """Reads atom coordinates of an SBU from a pdb file"""
 
@@ -329,9 +593,18 @@ class SBU(object):
         pdblines = pdbfile.readlines()
         for line in pdblines:
             if line.lower().startswith('atom'):
-                self.atomlabel.append(line[12:16].strip())
+                label = line[12:16].strip()
+                self.atomlabel.append(label)
                 self.coordinates.append(array([float(line[30:38]), \
                     float(line[38:46]), float(line[47:54])]))
+                if label == "X":
+                    # error if no symmetry type is included.
+                    self.symmetrytype.append(int(line[80:85]))
+                    angles = [float(i) for i in line[86:].split()]
+                    if len(angles) == 0:
+                        self.connectangles.append([0.])
+                    else:
+                        self.connectangles.append(angles)
         pdbfile.close()
 
     def from_xsd(self, filename):
@@ -397,7 +670,6 @@ class SBU(object):
                         purgeatoms.append(i)
                 pt = self.coordinates[indx]
                 self.connectpoints.append(pt)
-                self.connectangles.append([0.])
                 purgeatoms.append(indx)
 
         # purge any coordinates in self.coordinates belonging to "X"'s
@@ -406,6 +678,7 @@ class SBU(object):
         self.purge(purgeatoms)
 
         if len(self.anglevect) == 0:
+            error("anglevect is wrong")
             sys.exit(0)
         self.connect_vector = array(self.connect_vector)
         self.connectpoints = array(self.connectpoints)
@@ -420,7 +693,10 @@ class SBU(object):
             self.nbonds.pop(patm)
             self.bonding.pop(patm)
 
-        self.connect = coord_matrix(self.atomlabel, self.coordinates)[0]
+        struct = coord_matrix(self.atomlabel, self.coordinates)
+        self.connect = struct[0]
+        self.bonding = struct[1]
+        self.nbonds = struct[2]
 
     def carboxylate_test(self, atom):
         """Simple test for a carboxylate group"""
@@ -465,6 +741,82 @@ class SBU(object):
         """
         for icoord, xyz in enumerate(self.coordinates):
             self.coordinates[icoord] = xyz - self.COM
+
+    def xyz_debug(self, filename=None):
+        """
+        Writes all the bonding and atom info to an xyz file
+        """
+        if filename is None:
+            filename = "debug.xyz"
+        else:
+            filename = filename + ".xyz"
+        xyzfile = open(filename, "a")
+
+        bondformat = "%s%12.5f%12.5f%12.5f " +\
+                     "atom_vector%12.5f%12.5f%12.5f\n"
+        atomformat = "%s%12.5f%12.5f%12.5f\n"
+        
+        line = []
+        atomcount = 0
+        for ibond, bondpt in enumerate(self.points):
+            atomcount += 1
+            line.append(bondformat%(tuple(["F"]+list(bondpt)+
+                                        list(self.vectors[ibond]))))
+        for icoord, coord in enumerate(self.coordinates): 
+            atomcount += 1
+            line.append(atomformat%(tuple([self.atomlabel[icoord]]+list(coord))))
+
+        xyzfile.write("%i\nDebug\n"%atomcount)
+        xyzfile.writelines(line)
+        xyzfile.close()
+
+class Functional_group(object):
+    """
+    Class to contain all information about a functional group
+    """
+    
+    def __init__(self, file=None):
+        self.atomlabel = []
+        self.coordinates = []
+        self.connectpoint = np.zeros(3)
+        self.connect_vector = np.zeros(3) 
+
+        if (file is not None):
+            self.from_pdb(file)
+
+            structure = coord_matrix(self.atomlabel, self.coordinates)
+            
+            self.evaluate_bonding(structure[1])
+
+    def evaluate_bonding(self, bonding):
+        """Determines the connectpoint, connect_vector"""
+        purgeatom = []
+        for it, bond in enumerate(bonding):
+            if self.atomlabel[it] == "J":
+                self.connect_vector = (self.coordinates[it] - 
+                        self.coordinates[bond[0]])
+                self.connectpoint = self.coordinates[bond[0]]
+                purgeatom.append(it)
+
+        for j in purgeatom:
+            self.atomlabel.pop(j)
+            self.coordinates.pop(j)
+
+    def from_pdb(self, filename):
+        """Reads atom coordinates of an SBU from a pdb file"""
+
+        filename = filename + ".pdb"
+        pdbfile = open(filename)
+        pdblines = pdbfile.readlines()
+        for line in pdblines:
+            if line.lower().startswith('atom'):
+                self.atomlabel.append(line[12:16].strip())
+                self.coordinates.append(array([float(line[30:38]), \
+                    float(line[38:46]), float(line[47:54])]))
+        pdbfile.close()
+
+
+
 class Cell(object):
     """
     Handles all operations related to developing and maintaining 
@@ -608,6 +960,8 @@ class Structure(object):
         self.sbu_array = sbu_array
         for i, j in enumerate(self.sbu_array):
             j.index = i
+
+        self.fcoords = []
 
     def reset(self):
         sbuarray = self.sbu_array
@@ -927,14 +1281,14 @@ class Structure(object):
         if tol is not None:
             tol = tol
         else:
-            tol = .5
+            tol = 1.0
 
         mofrange = [i for i in range(len(self.mof)) if i != sbu1]
         for sbu2 in mofrange:
             sbu2 = self.mof[sbu2]
             for atom2 in sbu2.coordinates:
                 for atom1 in self.mof[sbu1].coordinates:
-                    dist = self.apply_pbc(atom1 - atom2)
+                    dist = self.apply_pbc(atom1) - self.apply_pbc(atom2)
                     if length(dist) <= tol:
                         return True
         return False
@@ -958,9 +1312,9 @@ class Structure(object):
     def add_new_sbu(self, sbu1, bond1, sbutype2, bond2, iangle):
         """adds a new sbutype2 to the growing MOF"""
 
-        #self.xyz_debug()
-        #dump = self.coordinate_dump()
-        #write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
+        self.xyz_debug()
+        dump = self.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
 
         # use angle listed on organic species bond type
         if self.sbu_array[sbutype2].ismetal:
@@ -975,9 +1329,9 @@ class Structure(object):
             "Added %s, SBU %i, bond %i to SBU %i, %s bond %i."
             %(self.mof[sbu2].type, sbu2, bond2, sbu1,
               self.mof[sbu1].type, bond1))
-        #self.xyz_debug()
-        #dump = self.coordinate_dump()
-        #write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
+        self.xyz_debug()
+        dump = self.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], self.pbc.cell, self.pbc.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
@@ -1060,6 +1414,20 @@ class Structure(object):
         sbu2.connectpoints += shiftvector
         sbu2.coordinates += shiftvector
 
+    def getfinals(self):
+        """
+        get final coordinates from fractionals.
+        """
+        A = self.pbc.cell[0]
+        B = self.pbc.cell[1]
+        C = self.pbc.cell[2]
+        finals = []
+        for i in self.fcoords:
+            finals.append(i[0] * A + i[1] * B + i[2] * C)
+
+        return array(finals)
+
+
     def sbu_rotation(self, sbu, rotpoint, axis, angle):
         """
         Takes a growing structure and rotates the coordinates
@@ -1085,12 +1453,48 @@ class Structure(object):
         convert all coordinates to the shifted coordinates derived
         from the periodic boundary conditions
         """
+        firstsbu = self.mof[0]
+        cellcentre = (self.pbc.cell[0]/2. + self.pbc.cell[1]/2. 
+                        + self.pbc.cell[2]/2.)
+        shiftvect = cellcentre - firstsbu.COM
         for mof in self.mof:
             for ibond, bond in enumerate(mof.connectpoints):
-                mof.connectpoints[ibond] = self.apply_pbc(bond)
+                mof.connectpoints[ibond] = shiftvect + bond
             for icoord, coord in enumerate(mof.coordinates):
-                mof.coordinates[icoord] = self.apply_pbc(coord)
+                mof.coordinates[icoord] = shiftvect + coord
+        
+        self.getfractionals()
         return
+
+    def fractional(self, vector):
+        """
+        returns fractional coordinates based on the periodic boundary
+        conditions
+        """
+        A = self.pbc.cell[0]
+        B = self.pbc.cell[1]
+        C = self.pbc.cell[2]
+
+        bca = dot(B, cross(C,A))
+        a = dot(C, cross(vector, B)) / bca
+        b = dot(C, cross(vector, A)) / (-1.*bca)
+        c = dot(B, cross(vector, A)) / bca
+        a = a - math.floor(round(a,4))
+        b = b - math.floor(round(b,4))
+        c = c - math.floor(round(c,4))
+        
+        return np.array([a,b,c])
+
+    def getfractionals(self):
+        """
+        stores the fractional coordinates of the mof
+        """
+        fractionals = []
+        for i in self.mof:
+            for j in i.coordinates:
+                fractionals.append(self.fractional(j))
+
+        self.fcoords = array(fractionals)
                 
     def mof_reorient(self):
         """
@@ -1098,20 +1502,20 @@ class Structure(object):
         first cell vector points in the x cartesian axis and the 
         second cell vector points in the xy cartesian plane
         """
+
+        #FIXME(pboyd): change all coordinates to fractional,
+        # rotate the pbc cell and the connect_vectors, anglevect
+        # then re-apply the fractional coordinates.
+
         xaxis = array([1.,0.,0.])
         yaxis = array([0.,1.,0.])
-        # first rotation to the x-axis
+        # first: rotation to the x-axis
         x_rotangle = calc_angle(self.pbc.cell[0], xaxis)
         x_rotaxis = rotation_axis(self.pbc.cell[0], xaxis)
         RX = rotation_matrix(x_rotaxis, x_rotangle)
         self.pbc.cell = array(self.pbc.cell * RX)
-        for sbu in self.mof:
-            sbu.coordinates = array(sbu.coordinates * RX)
-            sbu.connect_vector = array(sbu.connect_vector * RX)
-            sbu.anglevect = array(sbu.anglevect * RX)
-            sbu.connectpoints = array(sbu.connectpoints * RX)
 
-        # second rotation to the xy - plane
+        # second: rotation to the xy - plane
         projx_b = self.pbc.cell[1] - project(self.pbc.cell[1], xaxis)
         self.icell = np.zeros((3,3))
         xy_rotangle = calc_angle(projx_b, yaxis)
@@ -1124,22 +1528,11 @@ class Structure(object):
             RXY = rotation_matrix(-1.*xy_rotaxis, xy_rotangle)
 
         self.pbc.cell = array(self.pbc.cell * RXY)
-        for sbu in self.mof:
-            sbu.coordinates = array(sbu.coordinates * RXY)
-            sbu.connect_vector = array(sbu.connect_vector * RXY)
-            sbu.anglevect = array(sbu.anglevect * RXY)
-            sbu.connectpoints = array(sbu.connectpoints * RXY)
-
         # third change: -z to +z direction
         if self.pbc.cell[2][2] < 0.:
-            RZ = rotation_matrix(array([1.,0.,0]), np.pi) 
-            self.pbc.cell = array(self.pbc.cell * RZ)
-            for sbu in self.mof:
-                sbu.coorinates = array(sbu.coordinates * RZ)
-                sbu.connect_vector = array(sbu.connect_vector * RZ)
-                sbu.anglevect = array(sbu.anglevect * RZ)
-                sbu.connectpoints = array(sbu.connectpoints * RZ)
-
+            self.pbc.cell[2][2] = self.pbc.cell[2][2] * -1.
+            #RZ = rotation_matrix(array([1.,0.,0.]), np.pi) 
+            #self.pbc.cell = array(self.pbc.cell * RZ)
         return
 
     def saturated(self):
@@ -1249,7 +1642,70 @@ class Structure(object):
         xyzfile.write("%i\nDebug\n"%atomcount)
         xyzfile.writelines(line)
         xyzfile.close()
-    
+
+class Database(object):
+    """
+    class to read in files and interpret them
+    """
+    def __init__(self):
+        #TODO(pboyd): add flags for directories for the metal and
+        # organic linkers.
+        self.organic = []
+        self.metals = []
+        self.fnlgrps = []
+        # accepted filetypes. Add to this later?
+        # !!! make sure they are 3-letter file extensions!!!
+        self.accepted_file = [".pdb", ".xsd"]
+        # defaults for the organic and metal directories.
+        self.org_dir = "./organic"
+        self.met_dir = "./metals"
+        self.fnl_dir = "./functional_groups"
+    def build_databases(self):
+        """populate databases with SBUs"""
+        # FIXME(pboyd): Calling a class (SBU) within a class (Database) 
+        # from another class (Generate) doesn't work. 
+        # organic
+        database = self.scan(self.org_dir)
+        for i in database:
+            file = self.org_dir + '/' + i
+            if i[-4:] == ".pdb":
+                #self.organic.append(SBU("label", pdbfile=file[:-4], 
+                #                        ismetal=False))
+                self.organic.append(file[:-4])
+            elif i[-4:] == ".xsd":
+                #self.organic.append(SBU("label", xsdfile=file[:-4],
+                #                        ismetal=False))
+                self.organic.append(file[:-4])
+        # metals
+        database = self.scan(self.met_dir)
+        for i in database:
+            file = self.met_dir + '/' + i
+            if i[-4:] == ".pdb":
+                #self.metals.append(SBU("label", pdbfile=file[:-4]))
+                self.metals.append(file[:-4])
+            elif i[-4:] == ".xsd":
+                #self.metals.append(SBU("label", xsdfile=file[:-4])) 
+                self.metals.append(file[:-4])
+        # functional groups
+        database = self.scan(self.fnl_dir)
+        for i in database:
+            file = self.fnl_dir + '/' + i
+            if i[-4:] == ".pdb":
+                self.fnlgrps.append(file[:-4])
+            elif i[-4:] == ".xsd":
+                self.fnlgrps.append(file[:-4])
+
+    def scan(self, dir):
+        """Scans the directories for SBUs, returns list of SBU files."""
+        dir = dir.strip(".")
+        cwd = os.getcwd()
+        sbufiles = subprocess.Popen(["ls", cwd + dir], shell=False, 
+                stdout=subprocess.PIPE).communicate()[0].split("\n")
+        # Note: this only works for file extensions with three letters.
+        # any other types (1, 2, 4 etc ...) will not be included properly.
+        sbufiles = [i for i in sbufiles if i and i[-4:] in self.accepted_file]
+        return sbufiles
+
 def vectorshift(shift_vector, root_vector):
     """Shift a vector to within the bounds of a root vector"""
 
@@ -1344,7 +1800,7 @@ def rotation_axis(vect1, vect2):
     """
     vect1 = normalize(vect1)
     vect2 = normalize(vect2)
-    return normalize(np.cross(vect1, vect2))
+    return normalize(cross(vect1, vect2))
 
 def calc_angle(vect1, vect2):
     """ determines angle between vector1 and vector2"""
@@ -1534,6 +1990,8 @@ def write_pdb(label, atoms, coords, acell):
     lines = []
     atomformat1 = "%-6s%5i %-4s %3s %1s%4i%s   "
     atomformat2 = "%8.3f%8.3f%8.3f%6.2f%6.2f            %-3s%2s\n"
+    lines.append("%6s   GenStruct! created by: Suck it Wilmer.\n" % (
+                  'REMARK'))
     lines.append("%6s   Created: %s \n%-6s" % ('REMARK', 
                   today.strftime("%A %d %B %Y"), 'CRYST1'))
     lines.append("%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f P1\n"
@@ -1589,8 +2047,9 @@ def main():
 
     # initialize logging 
     Log()
+    open('history.xyz', 'w')
+    open('debug.xyz', 'w')
     genstruct = Generate()
-
-    genstruct.branched_generation()
+    genstruct.database_generation()
 if __name__ == '__main__':
     main()
