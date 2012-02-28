@@ -8,6 +8,7 @@ import logging
 import sys
 import textwrap
 import copy
+from time import time
 
 class Log:
 
@@ -88,8 +89,9 @@ class Time:
     """
     def __init__(self):
         self.timer = 0.
+        self.currtime = time() 
 
     def timestamp(self):
-        from time import time
         currtime = time()
-        self.timer = currtime - self.timer
+        self.timer = currtime - self.currtime 
+        self.currtime = currtime
