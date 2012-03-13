@@ -14,6 +14,7 @@ import re
 import numpy as np
 import copy
 import os
+from operations import *
 from numpy import array
 from elements import WEIGHT, ATOMIC_NUMBER
 import sample
@@ -38,8 +39,8 @@ class Generate(object):
         # moflib is the list containing MOF structures for extensive
         # branching
         self.moflib = []
-        # string history stores how the MOF was built
-        self.stringhist = []
+        # string history stores how MOFs were built
+        self.stringhist = {} 
         # max number of sbus in a structure
         self.nsbumax = 200
         # list to store strings
@@ -63,37 +64,48 @@ class Generate(object):
         database.build_databases()
         stopwatch = Time()
         stopwatch.timestamp()
-        for ind1, i in enumerate(database.metals):
-            for ind2, j in enumerate(database.organic):
-                for ind4, m in enumerate(database.fnlgrps):
-                    # TODO(pboyd): if no mof could be generated
-                    # don't re-try with a different functional group
+        # generate SBUs
+        metals = [SBU(pdbfile=i) for i in database.metals]
+        orgncs = [SBU(pdbfile=i, ismetal=False) for i in database.organic]
+        fnlgrp = [Functional_group(file=i) for i in database.fnlgrps]
 
-                    self.stringhist = []
-                    self.bondhist = []
-                    structcount = 0
-                    dataset = [SBU(pdbfile=i, fnlgrp=m), 
-                                SBU(pdbfile=j, ismetal=False, fnlgrp=m)]
-                    # Store the indices for file writing purposes
-                    indices = [i.index for i in dataset]
-                    indices.append(dataset[-1].fnlgrpind)
-                    self.unique_bondtypes(dataset)
-                    if len(self.bondtypes.keys()) == 1:
-                        self.branched_generation(dataset, indices)
+        for i in metals:
+            for j in orgncs:
+                for k in fnlgrp:
+                    indices = [i.index, j.index, k.index]
+                    dataset = [i, j]
+                    # attach functional groups
+                    # build MOF
+                    if self.stringhist.get((i.index,j.index)) is not None:
+                        self.apply_strings(dataset, i.index, j.index)
                     else:
-                        self.exhaustive_generation(dataset, indices)
+                        self.branched_generation(dataset, indices)
 
-                    # Re-make the same MOF with different arrangements
-                    # of functional groups (hopefully)
-                    if len(self.stringhist) > 0:
-                        done = False
-                        while not done:
-                            dataset = [SBU(pdbfile=i, fnlgrp=m), 
-                                SBU(pdbfile=j, ismetal=False, fnlgrp=m)]
-                            if self.apply_strings(dataset, indices):
-                                structcount += 1
-                            if structcount == 3:
-                                done = True
+
+                #for m in database.fnlgrps:
+                #    structcount = 0
+                #    dataset = [SBU(pdbfile=i, fnlgrp=m), 
+                #               SBU(pdbfile=j, ismetal=False, fnlgrp=m)]
+                #   # Store the indices for file writing purposes
+                #   indices = [i.index for i in dataset]
+                #   indices.append(dataset[-1].fnlgrpind)
+                #   self.unique_bondtypes(dataset)
+                #   if len(self.bondtypes.keys()) == 1:
+                #       self.branched_generation(dataset, indices)
+                #   else:
+                #       self.exhaustive_generation(dataset, indices)
+
+                #   # Re-make the same MOF with different arrangements
+                #   # of functional groups (hopefully)
+                #   if len(self.stringhist) > 0:
+                #       done = False
+                #       while not done:
+                #           dataset = [SBU(pdbfile=i, fnlgrp=m), 
+                #               SBU(pdbfile=j, ismetal=False, fnlgrp=m)]
+                #           if self.apply_strings(dataset, indices):
+                #               structcount += 1
+                #           if structcount == 3:
+                #               done = True
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
 
@@ -428,7 +440,6 @@ class Generate(object):
         # all possibilities are exhausted without joining two SBUs
         # then go back to the previous SBU and change it.
         # TODO(pboyd): this needs to be hashed out.
-
         if ints[0] >= len(struct.mof):
             return "Backup"
       
@@ -541,9 +552,7 @@ class SBU(object):
     """
     """
 
-    def __init__(self, pdbfile=None, xsdfile=None, ismetal=None, fnlgrp=None):
-        # index is used to keep track of the SBU's order when building
-        # new structures.
+    def __init__(self, pdbfile=None, ismetal=None):
         self.vectors = []
         self.points = []
         # each connective bond is assigned a type.  If bonds are 
@@ -552,12 +561,11 @@ class SBU(object):
         # angles for possible rotations
         self.connectangles = []
         self.name = None
+        # index is used to keep track of the SBU's order when building
+        # new structures.  This should be found in the pdb file.
         self.index = 0
-        self.fnlgrpind = 0
         self.atomlabel = []
         self.coordinates = []
-        if xsdfile is not None:
-            self.from_xsd(xsdfile)
         if pdbfile is not None:
             self.from_pdb(pdbfile)
         self.mass = 0. 
@@ -600,11 +608,6 @@ class SBU(object):
         # add linking points to the SBU.
         # TODO(pboyd): add possible linking types
         self.add_connect_vector()
-
-        # tack on functional groups
-        if fnlgrp is not None:
-            self.add_functional_group(fnlgrp)
-
     def add_functional_group(self, fnlgrp):
         """Adds functional group to the SBU"""
 
@@ -619,10 +622,6 @@ class SBU(object):
         # chose a random number of H's to switch with fnl group
         num = randrange(len(hydrogens))+1
 
-        # switch out the fnlgrp filename for the class 
-        fnlgrp = Functional_group(file=fnlgrp)
-
-        self.fnlgrpind = fnlgrp.index
         record = []
         info("%i functional groups added"%(num))
         # randomly choose the H's to switch and switch them
@@ -631,14 +630,14 @@ class SBU(object):
             while not done:
                 h = randrange(len(hydrogens))
                 if hydrogens[h] not in record:
-                    self.switch(hydrogens[h], copy.deepcopy(fnlgrp))
+                    self.switch(hydrogens[h], copy.copy(fnlgrp))
                     record.append(hydrogens[h])
                     done = True
 
         record.sort()
         # remove the hydrogens from the SBU
         for hydrogen in reversed(record):
-            self.coordinates = np.delete(self.coordinates, hydrogen, axis=0)
+            self.coordinates.pop(hydrogen) 
             self.atomlabel.pop(hydrogen)
 
     def switch(self, hydrogen, fnlgrp):
@@ -648,8 +647,9 @@ class SBU(object):
 
         atom = self.bonding[hydrogen][0]
         info("adding functional group to atom %i"%(atom))
-        bondvector =  -1. * normalize(self.coordinates[hydrogen] - 
-                               self.coordinates[atom])
+        diffvect = vect_sub(self.coordinates[hydrogen], 
+                            self.coordinates[atom])
+        bondvector =  scalar_mult(-1., normalize(diffvect))
         fnlgrp_vect = fnlgrp.connect_vector
 
         self.points.append(self.coordinates[atom])
@@ -660,16 +660,16 @@ class SBU(object):
         self.rotation(fnlgrp, axis, angle)
 
         # add to the SBU
-        shift = self.coordinates[atom] - fnlgrp.connectpoint
+        shift = vect_sub(self.coordinates[atom], fnlgrp.connectpoint)
 
-        fnlgrp.coordinates = fnlgrp.coordinates + shift  - \
-                            fnlgrp.connect_vector
+        fnlgrp.coordinates = [vect_sub(vect_add(i,shift),
+                            fnlgrp.connect_vector) for i in 
+                            fnlgrp.coordinates]
 
-        self.coordinates = np.concatenate((self.coordinates,
-                fnlgrp.coordinates), axis=0)
+        self.coordinates = self.coordinates + fnlgrp.coordinates
         for i in fnlgrp.atomlabel:
             self.atomlabel.append(i)
-        self.points.append(fnlgrp.connectpoint + shift)
+        self.points.append(vect_add(fnlgrp.connectpoint, shift))
         self.vectors.append(fnlgrp.connect_vector)
 
     def rotation(self, fnlgrp, axis, angle):
@@ -682,10 +682,12 @@ class SBU(object):
         # origin, using rotpoint * (I - R) 
         rotpoint = fnlgrp.connectpoint
         #rotpoint = np.zeros(3)
-        C = array(rotpoint * (np.identity(3) - R))[0]
-        fnlgrp.coordinates = array(fnlgrp.coordinates * R) + C
-        fnlgrp.connectpoint = array(fnlgrp.connectpoint * R)[0] + C
-        fnlgrp.connect_vector = array(fnlgrp.connect_vector * R)[0]
+        C = matrx_mult(rotpoint, (matrx_sub(zeros3, R)))
+        fnlgrp.coordinates = [vect_add(matrx_mult(i, R), C) 
+                                for i in fnlgrp.coordinates]
+        # the following assumes one connectpoint and one connectvector
+        fnlgrp.connectpoint = vect_add(matrx_mult(fnlgrp.connectpoint, R), C)
+        fnlgrp.connect_vector = matrx_mult(fnlgrp.connect_vector, R)
 
     def from_pdb(self, filename):
         """Reads atom coordinates of an SBU from a pdb file"""
@@ -704,8 +706,8 @@ class SBU(object):
             if line.lower().startswith('atom'):
                 label = line[12:16].strip()
                 self.atomlabel.append(label)
-                self.coordinates.append(array([float(line[30:38]), \
-                    float(line[38:46]), float(line[47:54])]))
+                self.coordinates.append([float(line[30:38]), 
+                    float(line[38:46]), float(line[47:54])])
                 if label == "X":
                     # error if no symmetry type is included.
                     self.symmetrytype.append(int(line[80:85]))
@@ -718,6 +720,7 @@ class SBU(object):
 
     def from_xsd(self, filename):
         """
+        DEPRECIATED
         Reads atom coordinates of an SBU from a Materials Studio .xsd
         file.
         """
@@ -738,7 +741,6 @@ class SBU(object):
                         coord = line[index+1].strip().split(",")
                         self.coordinates.append([float(x) for x in coord])
 
-        self.coordinates = array(self.coordinates)
     def check_unsat(self):
         """
         checking for unsaturated bonds
@@ -769,12 +771,13 @@ class SBU(object):
                 for i in self.bonding[indx]:
                     if self.atomlabel[i] == "Y":
                         # angle vector required to align SBUs
-                        self.anglevect.append(self.coordinates[i] - 
-                                self.coordinates[indx])
+                        vect = vect_sub(self.coordinates[i],
+                                        self.coordinates[indx])
+                        self.anglevect.append(vect)
                         purgeatoms.append(i)
                     elif self.atomlabel[i] == "Z":
-                        vect = (self.coordinates[i] - 
-                                self.coordinates[indx])
+                        vect = vect_sub(self.coordinates[i],
+                                        self.coordinates[indx])
                         self.connect_vector.append(vect)
                         purgeatoms.append(i)
                 pt = self.coordinates[indx]
@@ -789,15 +792,12 @@ class SBU(object):
         if len(self.anglevect) == 0:
             error("anglevect is wrong")
             sys.exit(0)
-        self.connect_vector = array(self.connect_vector)
-        self.connectpoints = array(self.connectpoints)
-        self.anglevect = array(self.anglevect)
 
     def purge(self, atoms):
         """Remove entries for X and Y atoms in the atomic coordinates"""
         atoms.sort()
         for patm in reversed(atoms):
-            self.coordinates = np.delete(self.coordinates, patm, 0) 
+            self.coordinates.pop(patm)
             self.atomlabel.pop(patm)
             self.nbonds.pop(patm)
             self.bonding.pop(patm)
@@ -833,14 +833,14 @@ class SBU(object):
         In this calculation the bottom value is also stored
         as the self.mass
         """
-        top = 0.
+        top = zeros1
         bottom = 0.
-
         for i in range(len(self.atomlabel)):
-            top += self.coordinates[i] * WEIGHT[self.atomlabel[i]]
+            massvect = scalar_mult(WEIGHT[self.atomlabel[i]], self.coordinates[i])
+            top = vect_add(top, massvect)
             bottom += WEIGHT[self.atomlabel[i]]
         self.mass = bottom
-        return top / bottom
+        return scalar_div(bottom, top)
 
     def COM_shift(self):
         """
@@ -849,7 +849,7 @@ class SBU(object):
         This will make it easier for geometry shifts and rotations
         """
         for icoord, xyz in enumerate(self.coordinates):
-            self.coordinates[icoord] = xyz - self.COM
+            self.coordinates[icoord] = vect_sub(xyz, self.COM)
 
     def xyz_debug(self, filename=None):
         """
@@ -904,8 +904,9 @@ class Functional_group(object):
         purgeatom = []
         for it, bond in enumerate(bonding):
             if self.atomlabel[it] == "J":
-                self.connect_vector = (self.coordinates[it] - 
-                        self.coordinates[bond[0]])
+                vect = vect_sub(self.coordinates[it],
+                                self.coordinates[bond[0]])
+                self.connect_vector = vect
                 self.connectpoint = self.coordinates[bond[0]]
                 purgeatom.append(it)
 
@@ -927,8 +928,8 @@ class Functional_group(object):
                     self.name = line[16:].strip()
             if line.lower().startswith('atom'):
                 self.atomlabel.append(line[12:16].strip())
-                self.coordinates.append(array([float(line[30:38]), \
-                    float(line[38:46]), float(line[47:54])]))
+                self.coordinates.append([float(line[30:38]), \
+                    float(line[38:46]), float(line[47:54])])
         pdbfile.close()
 
 
@@ -964,7 +965,7 @@ class Structure(object):
         # cell with unit vectors
         self.ncell = np.zeros((3,3))
         # inverted cell
-        self.icell = np.zeros((3,3))
+        self.icell = zeros3
         # index to keep track of number of vectors added
         self.pbcindex = -1
 
@@ -1085,7 +1086,7 @@ class Structure(object):
                     if sbuind != sbu_ind1 and test:
                         point1 = self.apply_pbc(bond1)
                         point2 = self.apply_pbc(bond)
-                        if length(point1-point2) <= tol:
+                        if length(vect_sub(point1,point2)) <= tol:
                             info("Local bond found between " +
                                 "SBU %i, bond %i, "%(sbu_ind1, bondind1)+
                                 "and SBU %i, bond %i."%(sbuind, bondind)+
@@ -1294,7 +1295,7 @@ class Structure(object):
             for sbu2 in bond1[1]:
                 connecting_point1 = self.mof[sbu1].connectpoints[bond1[0]]
                 connecting_point2 = self.mof[sbu2[0]].connectpoints[sbu2[1]]
-                vect = connecting_point2 - connecting_point1
+                vect = vect_sub(connecting_point2, connecting_point1)
                 # key is (bond, [sbu, bond])
                 vectors[(bond1[0],tuple(sbu2))] = vect
         return vectors
@@ -1341,7 +1342,8 @@ class Structure(object):
             sbu2 = self.mof[sbu2]
             for atom2 in sbu2.coordinates:
                 for atom1 in self.mof[sbu1].coordinates:
-                    dist = self.apply_pbc(atom1 - atom2) 
+                    vect = vect_sub(atom1, atom2)
+                    dist = self.apply_pbc(vect) 
                     if length(dist) <= tol:
                         return True
         return False
@@ -1351,15 +1353,11 @@ class Structure(object):
         Dumps all the atom labels, xyz coordinates and what SBU index
         they belong to
         """
-        coords, atoms, sbuind = [], [], []
+        sbuind = []
+        coords = [i for j in self.mof for i in j.coordinates]
+        atoms = [i for j in self.mof for i in j.atomlabel]
         for sbu in range(len(self.mof)):
-            coords.append([i for i in self.mof[sbu].coordinates])
-            atoms.append([i for i in self.mof[sbu].atomlabel])
-            sbuind.append([sbu for i in range(len(self.mof[sbu].coordinates))])
-
-        coords = array(list(flatten(coords)))
-        atoms = list(flatten(atoms))
-        sbuind = list(flatten(sbuind))
+            sbuind.append([sbu for i in range(len(self.mof[sbu].coordinates))]) 
         return (atoms, coords, sbuind)
 
     def add_new_sbu(self, sbu1, bond1, sbutype2, bond2, iangle):
@@ -1387,6 +1385,7 @@ class Structure(object):
         write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
+        print len(self.mof[sbu2].coordinates)
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
         self.xyz_debug()
@@ -1415,13 +1414,12 @@ class Structure(object):
 
         # test to see if the rotation is in the right direction
         R = rotation_matrix(axis, angle)
-        test_vect = array(sbu2.anglevect[bond2][:] * R)[0]
+        test_vect = matrx_mult(sbu2.anglevect[bond2], R)
         test_angle = calc_angle(sbu1.anglevect[bond1],
                            test_vect)
         # FIXME(pboyd): the tolerance below is quite large,
         if not np.allclose(test_angle, 0., atol=1e-1):
-            axis = -1.*axis
-
+            axis = scalar_mult(-1.,axis)
         # rotation of SBU
         self.sbu_rotation(sbu2, rotpoint, axis, angle + rotangle)
         angle2 = calc_angle(sbu1.anglevect[bond1],
@@ -1442,30 +1440,32 @@ class Structure(object):
         sbu2 = self.mof[sbu2]
 
         axis = rotation_axis(sbu2.connect_vector[bond2], 
-                            -1.*sbu1.connect_vector[bond1])
+                            scalar_mult(-1., sbu1.connect_vector[bond1]))
         angle = calc_angle(sbu2.connect_vector[bond2], 
-                           -1.*sbu1.connect_vector[bond1])
+                           scalar_mult(-1.,sbu1.connect_vector[bond1]))
         # origin of rotation
         rotpoint = sbu2.centre_of_mass()
 
         while (np.allclose(axis, np.zeros(3), atol=1e-4)):
-            randaxis = normalize(array([random(), random(), random()]))
+            randaxis = normalize([random(), random(), random()])
             randangle = uniform(0., np.pi/3.)
             self.sbu_rotation(sbu2, rotpoint, randaxis, randangle)
             axis = rotation_axis(sbu2.connect_vector[bond2], 
-                             -1.*sbu1.connect_vector[bond1])
+                             scale_mult(-1.,sbu1.connect_vector[bond1]))
             angle = calc_angle(sbu2.connect_vector[bond2], 
-                           -1.*sbu1.connect_vector[bond1])
+                           scale_mult(-1.,sbu1.connect_vector[bond1]))
 
         # rotate sbu2
         self.sbu_rotation(sbu2, rotpoint, axis, angle)
 
         # shift the coordinates by the shift vectors 
-        shiftvector = (sbu1.connectpoints[bond1] - 
-                       sbu2.connectpoints[bond2])
+        shiftvector = vect_sub(sbu1.connectpoints[bond1],
+                               sbu2.connectpoints[bond2])
         # bond points are then shifted by the shiftvector
-        sbu2.connectpoints += shiftvector
-        sbu2.coordinates += shiftvector
+        sbu2.connectpoints = [vect_add(i,shiftvector) for i 
+                              in sbu2.connectpoints]
+        sbu2.coordinates = [vect_add(i,shiftvector) for i in
+                            sbu2.coordinates]
 
     def getfinals(self):
         """
@@ -1476,9 +1476,13 @@ class Structure(object):
         C = self.cell[2]
         finals = []
         for i in self.fcoords:
-            finals.append(i[0] * A + i[1] * B + i[2] * C)
+            vect = zeros1
+            vect = vect_add(vect, scalar_mult(i[0], A))
+            vect = vect_add(vect, scalar_mult(i[1], B))
+            vect = vect_add(vect, scalar_mult(i[2], C))
+            finals.append(vect)
 
-        return array(finals)
+        return finals
 
 
     def sbu_rotation(self, sbu, rotpoint, axis, angle):
@@ -1493,13 +1497,14 @@ class Structure(object):
         # R rotates these points about the origin, hence a correction
         # must be applied if the position of rotation is not the 
         # origin, using rotpoint * (I - R) 
-        C = array(rotpoint * (np.identity(3) - R))
-        
-        sbu.coordinates = array(sbu.coordinates * R) + C
-        sbu.connectpoints = array(sbu.connectpoints * R) + C
+        C = matrx_mult(rotpoint, matrx_sub(identity3, R))
+        sbu.coordinates = [vect_add(matrx_mult(i, R), C) 
+                            for i in sbu.coordinates]
+        sbu.connectpoints = [vect_add(matrx_mult(i, R), C)
+                            for i in sbu.connectpoints]
         # connect_vector and anglevect are ALWAYS centered at the origin!!
-        sbu.connect_vector = array(sbu.connect_vector * R)
-        sbu.anglevect = array(sbu.anglevect * R)
+        sbu.connect_vector = [matrx_mult(i, R) for i in sbu.connect_vector]
+        sbu.anglevect = [matrx_mult(i, R) for i in sbu.anglevect]
     
     def final_coords(self):
         """
@@ -1507,14 +1512,15 @@ class Structure(object):
         from the periodic boundary conditions
         """
         firstsbu = self.mof[0]
-        cellcentre = (self.cell[0]/2. + self.cell[1]/2. 
-                        + self.cell[2]/2.)
-        shiftvect = cellcentre - firstsbu.COM
+        cellcentre = zeros1
+        for k in self.cell:
+            cellcentre = vect_add(cellcentre, scalar_div(2., k))
+        shiftvect = vect_sub(cellcentre, firstsbu.COM)
         for mof in self.mof:
             for ibond, bond in enumerate(mof.connectpoints):
-                mof.connectpoints[ibond] = shiftvect + bond
+                mof.connectpoints[ibond] = vect_add(shiftvect, bond)
             for icoord, coord in enumerate(mof.coordinates):
-                mof.coordinates[icoord] = shiftvect + coord
+                mof.coordinates[icoord] = vect_add(shiftvect, coord)
         
         self.getfractionals()
         return
@@ -1536,7 +1542,7 @@ class Structure(object):
         b = b - math.floor(b)
         c = c - math.floor(c)
        
-        return np.array([a,b,c])
+        return [a,b,c]
 
     def getfractionals(self):
         """
@@ -1547,7 +1553,7 @@ class Structure(object):
             for j in i.coordinates:
                 fractionals.append(self.fractional(j))
 
-        self.fcoords = array(fractionals)
+        self.fcoords = fractionals
                 
     def mof_reorient(self):
         """
@@ -1560,32 +1566,32 @@ class Structure(object):
         # rotate the pbc cell and the connect_vectors, anglevect
         # then re-apply the fractional coordinates.
 
-        xaxis = array([1.,0.,0.])
-        yaxis = array([0.,1.,0.])
+        xaxis = [1.,0.,0.]
+        yaxis = [0.,1.,0.]
         # first: rotation to the x-axis
         x_rotangle = calc_angle(self.cell[0], xaxis)
         x_rotaxis = rotation_axis(self.cell[0], xaxis)
         RX = rotation_matrix(x_rotaxis, x_rotangle)
-        self.cell = array(self.cell * RX)
+        self.cell = [matrx_mult(i, RX) for i in self.cell]
 
         # second: rotation to the xy - plane
-        projx_b = self.cell[1] - project(self.cell[1], xaxis)
-        self.icell = np.zeros((3,3))
+        projx_b = vect_sub(self.cell[1], project(self.cell[1], xaxis))
         xy_rotangle = calc_angle(projx_b, yaxis)
         xy_rotaxis = xaxis
         RXY = rotation_matrix(xy_rotaxis, xy_rotangle)
         # test to see if the rotation is in the right direction
-        testvect = array(projx_b * RXY)[0]
+        testvect = matrx_mult(projx_b, RXY)
         testangle = calc_angle(testvect, yaxis)
         if not np.allclose(testangle, 0., atol = 1e-3):
             RXY = rotation_matrix(-1.*xy_rotaxis, xy_rotangle)
 
-        self.cell = array(self.cell * RXY)
+        self.cell = [matrx_mult(i, RXY) for i in self.cell]
         # third change: -z to +z direction
         if self.cell[2][2] < 0.:
             # invert the cell
-            self.cell[2][2] = self.cell[2][2] * -1.
-            self.fcoords = 1. - self.fcoords
+            self.cell[2][2] = -1. * self.cell[2][2]
+            self.fcoords = [vect_sub([1., 1., 1.], i) 
+                            for i in self.fcoords]
         return
 
     def saturated(self):
@@ -1616,7 +1622,7 @@ class Structure(object):
         A = self.cell[0]
         B = self.cell[1]
         C = self.cell[2]
-        if np.allclose(vector, np.zeros(3)):
+        if np.allclose(vector, zeros1):
             return vector
         if self.pbcindex == 0:
             vector = vectorshift(vector, A)
@@ -1635,18 +1641,21 @@ class Structure(object):
             # so math.floor doesn't subtract by 1.
             a = round(a, 4)
             b = round(b, 4)
-            vector = vector - (math.floor(a)*A) - (math.floor(b)*B)
+            vector = vect_sub(vector, scalar_mult(math.floor(a),A)) 
+            vector = vect_sub(vector, scalar_mult(math.floor(b),B))
 
         elif self.pbcindex == 2:
             bca = dot(B, cross(C,A))
             a = dot(C, cross(vector, B)) / bca
             b = dot(C, cross(vector, A)) / (-1.*bca)
             c = dot(B, cross(vector, A)) / bca
-
+            
             a = a - round(a)
             b = b - round(b)
             c = c - round(c)
-            vector = (a)*A + (b)*B + (c)*C
+            vector = scalar_mult(a,A)
+            vector = vect_add(vector, scalar_mult(b,B))
+            vector = vect_add(vector, scalar_mult(c,C))
 
         return vector
 
@@ -1674,7 +1683,8 @@ class Structure(object):
             # round a and b to 4 decimal places.  Precision can cause
             # problems if a and b are really close to 1, but under
             # so math.floor doesn't subtract by 1.
-            vector = vector - (math.floor(a)*A) - (math.floor(b)*B)
+            vector = vect_sub(vector, scalar_mult(math.floor(a),A)) 
+            vector = vect_sub(vector, scalar_mult(math.floor(b),B))
         elif self.pbcindex == 2:
 
             bca = dot(B, cross(C,A))
@@ -1685,7 +1695,9 @@ class Structure(object):
             a = a - math.floor(round(a,4))
             b = b - math.floor(round(b,4))
             c = c - math.floor(round(c,4))
-            vector = (a)*A + (b)*B + (c)*C
+            vector = scalar_mult(a,A)
+            vector = vect_add(vector, scalar_mult(b,B))
+            vecotr = vect_add(vector, scalar_mult(c,C))
         return vector
 
     def xyz_debug(self, filename=None):
@@ -1810,11 +1822,9 @@ class Structure(object):
             self.cell[0][0] * self.cell[1][2]
         i = self.cell[0][0] * self.cell[1][1] - \
             self.cell[0][1] * self.cell[1][0]
-
-        self.icell = array([[a,b,c],[d,e,f],[g,h,i]]) / det
-
-        #TODO(pboyd): this is the transpose of the np.linalg.inv() routine
-        # figure out which one is correct for the cell vectors
+        mat = [[a,b,c],[d,e,f],[g,h,i]]
+        self.icell = [scalar_div(det, i) for i in mat]
+        return
 
     def cellparams(self):
         """ get cell parameters based on the cell vectors"""
@@ -1917,11 +1927,12 @@ def vectorshift(shift_vector, root_vector):
             fraction = -1. * fraction
         # return the shift_vector which has been shifted such that
         # it's projection lies within the bounds of the root_vector
-        return (shift_vector - math.floor(fraction)*root_vector)
+        return vect_sub(shift_vector, 
+                scalar_mult(math.floor(fraction),root_vector))
 
 def determinant(matrix):
     """ calculates the determinant of a 3x3 matrix"""
-    return np.dot(matrix[0],np.cross(matrix[1],matrix[2]))
+    return dot(matrix[0],cross(matrix[1],matrix[2]))
 
 
 def coord_matrix(atom, coord):
@@ -1989,7 +2000,7 @@ def length(coord1, coord2=None):
     test2 = sum(test2) == 0.
     if test1 and test2:
         return 0.
-    vector = coord2 - coord1
+    vector = vect_sub(coord2,coord1)
     return math.sqrt(dot(vector, vector))
 
 def rotation_axis(vect1, vect2):
@@ -2021,7 +2032,7 @@ def rotation_matrix(axis, angle):
     uy = axis[1]
     uz = axis[2]
 
-    matrix = np.matrix([[
+    matrix = [[
         np.cos(angle) + ux * ux * (1 - np.cos(angle)),
         uy * ux * (1 - np.cos(angle)) + uz * np.sin(angle),
         uz * ux * (1 - np.cos(angle)) - uy * np.sin(angle)],
@@ -2032,7 +2043,7 @@ def rotation_matrix(axis, angle):
         [
         ux * uz * (1 - np.cos(angle)) + uy * np.sin(angle),
         uy * uz * (1 - np.cos(angle)) - ux * np.sin(angle),
-        np.cos(angle) + uz * uz * (1 - np.cos(angle))]])
+        np.cos(angle) + uz * uz * (1 - np.cos(angle))]]
     return matrix
 
 def planar_test(coordinates, tol=None):
@@ -2047,17 +2058,18 @@ def planar_test(coordinates, tol=None):
     else:
         tol = tol
     # Define a plane by three points
-    planevector1 = normalize(coordinates[1] - coordinates[0])
+    planevector1 = normalize(vect_sub(coordinates[1],coordinates[0]))
 
     index = 1
     while np.allclose(sum(planevector1), 0., atol=tol):
         index += 1
-        planevector1 = normalize(coordinates[index] - coordinates[0])
+        planevector1 = normalize(vect_sub(coordinates[index], 
+                                           coordinates[0]))
     # test points for colinearity with the first vector
     for coord in coordinates[index+1:]:
         if(not sum(coord) == 0.):
             if(not linear_test(array([coordinates[0],coordinates[1],coord]))):
-                planevector2 = normalize(coord - coordinates[0])
+                planevector2 = normalize(vect_sub(coord, coordinates[0]))
                 break
 
     # test to see if planevector2 is allocated (if there is a plane
@@ -2070,7 +2082,7 @@ def planar_test(coordinates, tol=None):
     for coord in coordinates[index+1:]:
        # If not colinear test for planarity
         if sum(coord) != 0.:
-            newvect = normalize(coord - coordinates[0])
+            newvect = normalize(vect_sub(coord, coordinates[0]))
 
             # test = 0 if co-planar
             test = dot(newvect, cross(planevector1, planevector2))
@@ -2082,9 +2094,9 @@ def planar_test(coordinates, tol=None):
 
 def normalize(vector):
     """changes vector length to unity"""
-    if sum(vector) == 0.:
+    if sum(inner(vector,vector)) == 0.:
         return vector
-    return vector / math.sqrt(dot(vector, vector))
+    return scalar_div(math.sqrt(dot(vector, vector)), vector)
 
 def linear_test(coordinates, tol=None):
     """
@@ -2097,15 +2109,14 @@ def linear_test(coordinates, tol=None):
         tol = tol
  
     # test by cross-product.  If linear, should be the zero vector
-    vector1 = normalize(coordinates[1] - coordinates[0])
+    vector1 = normalize(vect_sub(coordinates[1], coordinates[0]))
 
     for point in coordinates[2:]:
         if sum(point) != 0.:
-            vector2 = normalize(point - coordinates[0])
-            crossprod = np.cross(vector2,vector1)
+            vector2 = normalize(vect_sub(point, coordinates[0]))
+            crossprod = cross(vector2,vector1)
             if np.allclose(crossprod, np.zeros(3), atol=tol):
                 return True
-
     return False
 
 def points_close(point1, point2, tol=None):
@@ -2128,7 +2139,7 @@ def project(vector1, vector2):
     """ projects vector1 onto vector2, returns that vector"""
     angle = calc_angle(vector1, vector2)
     unit2 = normalize(vector2)
-    return length(vector1) * np.cos(angle) * unit2
+    return scalar_mult(length(vector1) * np.cos(angle), unit2)
 
 def degenerate_test(vector1, vector2, tol=None):
     """
@@ -2196,7 +2207,7 @@ def write_pdb(label, atoms, coords, acell):
                   % (tuple(acell)))
     for atom in range(len(atoms)):
         lines.append(atomformat1%('ATOM',atom+1,atoms[atom],"MOL","X",1," ") +
-                     atomformat2%(tuple(list(coords[atom])+[1.,0.,atoms[atom],0])))
+                     atomformat2%(tuple(coords[atom]+[1.,0.,atoms[atom],0])))
     lines.append("TER")
     pdbfile.writelines(lines)
     pdbfile.close()
@@ -2223,22 +2234,6 @@ def write_xyz(label, atoms, coords, cell, origin=None):
     for i in range(len(coords)):
         xyzfile.write('%s%12.5f%12.5f%12.5f\n' % 
                 (tuple([atoms[i]]+list(coords[i]))))
-
-def dot(vector1, vector2):
-    """
-    returns the dot product of two three dimensional vectors
-    """
-    return sum(x*y for x,y in zip(vector1,vector2)) 
-
-def cross(vector1, vector2):
-    """
-    returns the cross product of two three dimensional vectors
-    """
-    v0 = (vector1[1] * vector2[2]) - (vector1[2] * vector2[1])
-    v1 = -1.*((vector1[0] * vector2[2]) - (vector1[2] * vector2[0]))
-    v2 = (vector1[0] * vector2[1]) - (vector1[1] * vector2[0])
-    return array([v0,v1,v2])
-
 
 def main():
     """Default if run as an executable"""
