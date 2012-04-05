@@ -14,6 +14,7 @@ import re
 import numpy as np
 import copy
 import os
+import itertools
 from operations import *
 from numpy import array
 from elements import WEIGHT, ATOMIC_NUMBER
@@ -22,10 +23,11 @@ from bookkeeping import Log, Time
 from random import random, uniform, randrange, choice
 from datetime import date
 from logging import warning, debug, error, info, critical
-
+from scipy.spatial import distance
 # Constants
 
 RAD2DEG = 180./np.pi
+DEG2RAD = np.pi/180.
 
 class Generate(object):
     """
@@ -35,7 +37,11 @@ class Generate(object):
    
     def __init__(self):
         
+        # count the number of structures generated
         self.nstructs = 0
+        # count the number of structures generated with a particular
+        # set of linkers
+        self.structcounter = 0
         # moflib is the list containing MOF structures for extensive
         # branching
         self.moflib = []
@@ -51,12 +57,144 @@ class Generate(object):
         # list of bonding with bondtypes for successful structures
         self.bondhist = []
 
+        # bonding rules for the bond rule generation method
+        self.bondrules = []
     def gen_dir(self):
         """creates directory for putting new MOF files"""
         try:
             os.mkdir(self.outdir)
         except:
             pass
+
+    def bondrule_generation(self):
+        """ Generates MOFs based on a set of bonding rules for each SBU"""
+
+        database = Database()
+        database.build_databases()
+        stopwatch = Time()
+        stopwatch.timestamp()
+
+        metals = self.sort([SBU(pdbfile=i) for i in database.metals])
+        orgncs = self.sort([SBU(pdbfile=i, ismetal=False) 
+                            for i in database.organic])
+        fnlgrp = [None] + self.sort([Functional_group(file=i) 
+                                    for i in database.fnlgrps])
+
+        for i in metals:
+            for j in orgncs:
+                for m in fnlgrp:
+                    # set up the bond rules for these SBUs
+                    self.set_bond_rules([i, j])
+                    done = False
+                    idx = 0
+                    while not done:
+                        dataset = [copy.deepcopy(sbu) for sbu in [i, j]]
+                        for idx, sbu in enumerate(dataset):
+                            sbu.type = idx
+                        rule = self.bondrules[idx]
+                        while not self.apply_bondrule(dataset, rule):
+                            info("Incrementing bond rule")
+                            idx+=1
+                            rule = self.bondrules[idx]
+                        done = True
+
+        stopwatch.timestamp()
+        info("Finished. Time lapse : %f seconds"%stopwatch.timer)
+
+    def set_bond_rules(self, dataset):
+        """
+        Populates a dictionary of bond rules for reference when
+        building a MOF
+        """
+        # generate SBU, bond, angle data
+        bonddata = [(i, j, k) for i in range(len(dataset)) for j in 
+                    range(len(dataset[i].connectpoints)) for k in 
+                    range(len(dataset[i].connectangles[j]))]
+        # generate all pairwise bonds including self - self bonds
+        bondpairs = list(itertools.combinations(bonddata, 2))
+        bondpairs += list(itertools.izip(bonddata,bonddata))
+
+        # remove forbidden bonds
+        bondpairs = [pairs for pairs in bondpairs if 
+                     self.bonding_allowed(pairs, dataset)]
+        alternates = []
+        for pair in bondpairs:
+            alternates.append((pair[1], pair[0]))
+        bondpairs = bondpairs + alternates
+        dic = {}
+        for i in bondpairs:
+            dic.setdefault(i[0],[]).append(i[1])
+        max = len(dic.keys())
+        # set up a comprehensive list of bondpairs
+        reduced_rules = [i for i in itertools.combinations(bondpairs, max)]
+
+        reduced_rules = self.remove_duplicates(reduced_rules)
+        # remove rules which don't contain specifications for all
+        # bonds in the SBUs
+        #bonds = [(i, j) for i in range(len(dataset)) for j in 
+        #         range(len(dataset[i].connectpoints))]
+        #reduced_rules = [i for i in reduced_rules if 
+        #                    self.complete_rules(bonds, i)]
+        # set up a dictionary of bondpairs (redundancy included for 
+        # simplification later on.
+        rules = [{} for i in range(len(reduced_rules))]
+        for idx, rule in enumerate(reduced_rules):
+            for pair in rule:
+                rules[idx].setdefault(pair[0],[]).append(pair[1])
+        self.bondrules = rules
+        # NOTE: rules should contain inconsistencies
+
+    def complete_rules(self, bonds, rule):
+        """
+        Check if rule contains all the bonds in the list "bonds"
+        """
+        crapshoot = [(i[0], i[1]) for i in itertools.chain.from_iterable(rule)]
+        for i in bonds:
+            if i not in crapshoot:
+                return False
+        return True
+
+    def remove_duplicates(self, bondcombo):
+        """
+        Remove entries in the bonding list where the same bond is
+        referenced.
+        """
+        return [i for i in bondcombo if not self.dup_flag(i)]
+
+    def dup_flag(self, seq):
+        """ Return True if duplicates of first entry in list """
+        seen = set()
+        seen_add = seen.add
+        for x in seq:
+            # awkward use of if statement, but the double negative
+            # seems to be the only way this works.
+            if x[0] not in seen and not seen_add(x[0]):
+                pass
+            else:
+                return True
+        return False
+
+    def bonding_allowed(self, pair, dataset):
+        """ Determine if bonding is allowed for the bond pair """
+        sbu1 = pair[0][0]
+        bond1 = pair[0][1]
+        angle1 = pair[0][2]
+
+        sbu2 = pair[1][0]
+        bond2 = pair[1][1]
+        angle2 = pair[1][2]
+
+        # special bonding
+        if dataset[sbu1].symmetrytype[bond1] < 0:
+            if dataset[sbu2].symmetrytype[bond1] > 0:
+                return False
+            else:
+                # check if bonds are compatible
+                return True
+        if dataset[sbu1].ismetal == dataset[sbu2].ismetal:
+            return False
+
+        return True
 
     def database_generation(self):
         """Generates MOFs from a database of SBUs"""
@@ -67,47 +205,71 @@ class Generate(object):
         # generate SBUs
         metals = [SBU(pdbfile=i) for i in database.metals]
         orgncs = [SBU(pdbfile=i, ismetal=False) for i in database.organic]
-        fnlgrp = [Functional_group(file=i) for i in database.fnlgrps]
+        fnlgrp = self.sort([Functional_group(file=i) for i in database.fnlgrps])
+
+        orgncs = self.sort(orgncs)
+        metals = self.sort(metals)
+        fnlgrp = [None] + fnlgrp
 
         for i in metals:
             for j in orgncs:
                 for k in fnlgrp:
-                    indices = [i.index, j.index, k.index]
-                    dataset = [i, j]
-                    # attach functional groups
-                    # build MOF
-                    if self.stringhist.get((i.index,j.index)) is not None:
-                        self.apply_strings(dataset, i.index, j.index)
+                    if k == None:
+                        indices = [i.index, j.index, 0]
                     else:
-                        self.branched_generation(dataset, indices)
+                        indices = [i.index, j.index, k.index]
+                    done = False
+                    self.unique_bondtypes([i, j])
+                    while not done:
+                        met = copy.deepcopy(i)
+                        org = copy.deepcopy(j)
+                        fnl = copy.deepcopy(k)
+                        if fnl is not None:
+                            # chose a random number of H's to switch
+                            # with fnl group
+                            sites = j.choose_fnl_sites(fnl)
+                            if sites is None:
+                                done = True
+                            else:
+                                # attach functional groups
+                                org.add_functional_group(fnl, sites)
+                        dataset = [met, org]
+                        #self.stringhist[(i.index, j.index)] = [ 
+                        # '0-0-1-0-0', '0-1-1-0-0', '0-2-1-0-0', 
+                        # '0-3-1-0-0', '1-1-0-0-0', '5-1-1-0-0', 
+                        # '5-3-1-0-0', '6-1-0-0-0']
+                        #self.apply_strings(dataset, indices)
+                        #sys.exit()
+                        # build MOF
+                        if self.stringhist.get((i.index,j.index)) is not None:
+                            if self.stringhist.get((i.index, j.index)) == "Bad":
+                                done = True
+                            else:
+                                self.apply_strings(dataset, indices)
+                        else:
+                            self.exhaustive_generation(dataset, indices)
+                        # terminate if no functional groups were added
+                        if fnl is None:
+                            done = True
+                        # terminate if up to 4 structures were
+                        # generated with functional groups. 
+                        if self.structcounter == 4:
+                            self.structcounter = 0
+                            done = True
 
-
-                #for m in database.fnlgrps:
-                #    structcount = 0
-                #    dataset = [SBU(pdbfile=i, fnlgrp=m), 
-                #               SBU(pdbfile=j, ismetal=False, fnlgrp=m)]
-                #   # Store the indices for file writing purposes
-                #   indices = [i.index for i in dataset]
-                #   indices.append(dataset[-1].fnlgrpind)
-                #   self.unique_bondtypes(dataset)
-                #   if len(self.bondtypes.keys()) == 1:
-                #       self.branched_generation(dataset, indices)
-                #   else:
-                #       self.exhaustive_generation(dataset, indices)
-
-                #   # Re-make the same MOF with different arrangements
-                #   # of functional groups (hopefully)
-                #   if len(self.stringhist) > 0:
-                #       done = False
-                #       while not done:
-                #           dataset = [SBU(pdbfile=i, fnlgrp=m), 
-                #               SBU(pdbfile=j, ismetal=False, fnlgrp=m)]
-                #           if self.apply_strings(dataset, indices):
-                #               structcount += 1
-                #           if structcount == 3:
-                #               done = True
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
+
+    def sort(self, array):
+        """Sort an SBU array based on indices."""
+        newarray = []
+        indices = [i.index for i in array]
+        indices.sort()
+        for i in indices:
+            # MAKE SURE your SBU's have unique indices, the following
+            # line will remove multiple copies of the same index.
+            newarray.append([j for j in array if j.index == i][0])
+        return newarray
 
     def apply_strings(self, dataset, indices):
         """
@@ -115,37 +277,39 @@ class Generate(object):
         """
         struct = Structure(dataset)
         self.random_insert(0, dataset, struct)
+        # check for periodic bonds with itself.
         i = 0
-        for string in self.stringhist:
+        for string in self.stringhist[tuple(indices[:-1])]:
             ints = [int(i) for i in string.split("-")]
             debug("Applying %s"%(string))
             debug("Number of SBUs in structure: %i"%
                     (len(struct.mof)))
             sbu2 = len(struct.mof)
             struct.apply_string(string)
-            if struct.bad_addition(string, struct):
-                warning("SBU overlap occured")
+            struct.join_sbus(ints[0], ints[1], sbu2, ints[3], True)
+            if struct.overlap_allcheck():
                 return False
             else:
-                struct.join_sbus(ints[0], ints[1], sbu2, ints[3], False)
                 struct.sbu_check(sbu2)
                 struct.stringhist.append(string)
 
             struct.complete_box()
             if struct.saturated() and struct.complete_box():
                 #struct.final_coords()
+                info("Structure generated!")
                 struct.getfractionals()
                 struct.mof_reorient()
                 final_coords = struct.getfinals()
                 dump = struct.coordinate_dump()
                 self.nstructs += 1
-                filename = "%i_struct"%(self.nstructs)
+                filename = "%06i_struct"%(self.nstructs)
                 for i in indices:
                     filename = filename + "_%i"%(i)
                 write_pdb(self.outdir+filename, dump[0], final_coords, 
                           struct.acell)
                 write_xyz(self.outdir+filename, dump[0], final_coords, 
                     struct.cell, struct.origins)
+                self.structcounter += 1
                 # stop the timer
                 return True
 
@@ -158,25 +322,40 @@ class Generate(object):
         datalength = len(dataset)
         # outter loops: sbus
         bondtype = 0
-        for sbu1 in range(datalength):
-            for sbu2 in range(sbu1, datalength):
-                sbut1 = dataset[sbu1]
-                sbut2 = dataset[sbu2]
-                if sbut1.ismetal != sbut2.ismetal:
+        for idx1 in range(datalength):
+            for idx2 in range(idx1, datalength):
+                sbut1 = dataset[idx1]
+                sbut2 = dataset[idx2]
                 # middle loops: their bond types
-                    for int1, bondt1 in enumerate(sbut1.symmetrytype):
-                        for int2, bondt2 in enumerate(sbut2.symmetrytype):
+                for bdx1, bondt1 in enumerate(sbut1.symmetrytype):
+                    for bdx2, bondt2 in enumerate(sbut2.symmetrytype):
+                        if self.bondtype_valid(idx1, idx2, bdx1, bdx2, dataset):
                             # inner loops: their angles
-                            for iang1, angt1 in enumerate(sbut1.connectangles[int1]):
-                                for iang2, angt2 in enumerate(sbut2.connectangles[int2]):
+                            for iang1, angt1 in enumerate(sbut1.connectangles[bdx1]):
+                                for iang2, angt2 in enumerate(sbut2.connectangles[bdx2]):
                                     # check if the bond type already exists
-                                    arrayt = [[sbu1, bondt1, iang1],
-                                        [sbu2, bondt2, iang2]]
+                                    arrayt = [[idx1, bondt1, iang1],
+                                        [idx2, bondt2, iang2]]
                                     if not self.bondtype_exists(arrayt):
                                         bondtype += 1
                                         self.bondtypes[bondtype] = [
-                                            [sbu1, bondt1, iang1],
-                                            [sbu2, bondt2, iang2]]
+                                            [idx1, bondt1, iang1],
+                                            [idx2, bondt2, iang2]]
+
+    def bondtype_valid(self, idx1, idx2, bnd1, bnd2, dataset):
+        """Checks for bond type validity."""
+        sbu1 = dataset[idx1]
+        sbu2 = dataset[idx2]
+
+        if (bnd1 in sbu1.special_bond) and (bnd2 in sbu2.special_bond):
+            if sbu1.symmetrytype[bnd1] != sbu2.symmetrytype[bnd2]:
+                return True
+        elif (bnd1 not in sbu1.special_bond) and (bnd2 not in 
+                sbu2.special_bond):
+            if not (sbu1.ismetal == sbu2.ismetal):
+                return True
+        return False
+
 
     def bondtype_exists(self, arrayt):
         """
@@ -214,6 +393,58 @@ class Generate(object):
         struct.mof.append(copy.deepcopy(dataset[isbu]))
         struct.connectivity.append([None]*len(dataset[isbu].connectpoints))
         # TODO(pboyd): randomly perturb the coordinates
+
+    def apply_bondrule(self, dataset, rule):
+        """
+        build a MOF based on pre-defined rules. Return True if structure
+        was built, otherwise False.
+        """
+        struct = Structure(dataset)
+        self.random_insert(0, dataset, struct)
+
+        # iterate through SBUs
+        for sid, sbu in enumerate(struct.mof):
+            # iterate through bonds
+            for bid, bond in enumerate(sbu.connectpoints):
+                cart = choice(sbu.coordinates)
+                if struct.connectivity[sid][bid] is None:
+                    # determine bonding rule
+                    tid = struct.mof[sid].type
+                    key = [(tid, bid, aid) for aid in 
+                        range(len(sbu.connectangles[bid])) if 
+                        rule.has_key((tid,bid,aid))]
+                    # random choice of bonding partner if > 1 in the 
+                    # bondrule dictionary
+                    pair = choice(rule[key[0]])
+                    # TODO(pboyd): attach sbus, check for overlaps
+                    # check for bonding 
+                    # (with rules applied: [strict, leanient])
+                    newsbu = len(struct.mof)
+                    struct.apply_rule((sid,bid,aid), pair)
+                    if struct.overlap_allcheck():
+                        # end and try a different rule
+                        return False 
+                    else:
+                        struct.join_sbus(sid, bid, newsbu, pair[1], True)
+                    struct.sbu_check(newsbu)
+                if struct.saturated() and struct.complete_box():
+                    struct.final_coords()
+                    struct.mof_reorient()
+                    final_coords = struct.getfinals()
+                    dump = struct.coordinate_dump()
+                    filename = "%i_struct"%(self.nstructs)
+                    for i in dataset:
+                        filename = filename + "_%i"%(i.index)
+                    info("Structure generated!")
+                    return True
+                    #write_pdb(self.outdir+filename, dump[0], final_coords, 
+                    #          newstruct.acell)
+                    #newstruct.xyz_debug(self.outdir+filename)
+                elif len(struct.mof) == 30:
+                    info("Number of SBU's reached 50 without forming"
+                            + " a MOF. Exiting..")
+                    return False
+
     def exhaustive_generation(self, dataset, indices):
         """
         generates MOFs via string iteration.
@@ -228,6 +459,7 @@ class Generate(object):
         # call the Structure class with a set of SBU's and rules to
         # attempt to build the MOF
         self.moflib = []
+        self.bondhist = []
         self.moflib.append(Structure(dataset))
         # Start the string off at "0-0-0-0-0"
         string = "0-0-0-0-0"
@@ -235,18 +467,24 @@ class Generate(object):
         done = False
         # count the number of strings iterated 
         stringcount = 0
-        # count the number of structures generated
-        structcount = 0
         maxstring = self.setmax(dataset)
         while not done:
             newlist = []
+            # list of MOF structures to purge from self.moflib
             purge = []
             for ind, struct in enumerate(self.moflib):
-                newstruct = copy.deepcopy(struct)
-                stringtype = self.valid_string(string, newstruct,
+                # check to see if the string will apply to the
+                # structure.
+                if not self.valid_struct(string, ind):
+                    purge.append(ind)
+                    stringtype = False
+                else:
+                    newstruct = copy.deepcopy(struct)
+                    stringtype = self.valid_string(string, newstruct,
                                 dataset)
                 if stringtype == "True":
                     dir = [int(i) for i in string.split("-")]
+                    newstruct.sbu_check(dir[0])
                     info("Applying %s"%(string))
                     debug("Number of SBUs in structure: %i"%(
                           len(newstruct.mof)))
@@ -254,11 +492,15 @@ class Generate(object):
                                                     len(newlist)))
                     sbu2 = len(newstruct.mof)
                     newstruct.apply_string(string)
-                    if newstruct.bad_addition(string, newstruct):
-                        warning("SBU overlap occured")
+                    # Temp join SBUs so that the overlap algorithm
+                    # can recognize the sbus as being bound together.
+                    newstruct.join_sbus(dir[0], dir[1], sbu2,
+                                            dir[3], True)
+                    #if newstruct.bad_addition(string, newstruct):
+                    if newstruct.overlap_allcheck():
+                        newstruct.disjoin_sbus(dir[0], dir[1], sbu2,
+                                                dir[3])
                     else:
-                        newstruct.join_sbus(dir[0], dir[1], sbu2,
-                                            dir[3], False)
                         newstruct.sbu_check(sbu2)
                         # store the bonding type in history lists
                         bondtype = self.determine_bondtype(string,
@@ -268,37 +510,52 @@ class Generate(object):
                         self.bondhist.append(newstruct.bondhist)
                         newlist.append(newstruct)
                
-                #elif stringtype == "Backup":
-                    # delete the entry from the moflib
-                    #purge.append(ind)
                 if newstruct.saturated() and newstruct.complete_box():
                     newstruct.final_coords()
                     newstruct.mof_reorient()
                     final_coords = newstruct.getfinals()
                     dump = newstruct.coordinate_dump()
                     self.nstructs += 1
-                    filename = "%i_struct"%(self.nstructs)
+                    filename = "%06i_struct"%(self.nstructs)
                     for i in indices:
                         filename = filename + "_%i"%(i)
+                    self.structcounter += 1
                     info("Structure generated!")
                     info("%s"%(newstruct.stringhist))
                     write_pdb(self.outdir+filename, dump[0], final_coords, 
                               newstruct.acell)
-                    newstruct.xyz_debug(self.outdir+filename)
-                    self.stringhist = newstruct.stringhist
-                    structcount += 1
+                    #newstruct.xyz_debug(self.outdir+filename)
+                    self.stringhist[tuple(indices[:-1])] = newstruct.stringhist
                     # just terminate
                     done = True
-            if len(self.moflib) == 1000:
+                # Terminate if the number of possible mof structures 
+                # gets too big.
+                if len(self.moflib) == 1000:
+                    self.stringhist[tuple(indices[:-1])] = "Bad"
+                    done = True
+                # Terminate if the size of the MOF gets too big.
+                if len(newstruct.mof) > 20:
+                    self.stringhist[tuple(indices[:-1])] = "Bad"
+                    done = True
+            for i in reversed(purge):
+                self.moflib.pop(i)
+            if len(self.moflib) == 0:
+                self.stringhist[tuple(indices[:-1])] = "Bad"
                 done = True
-            #if len(purge) > 0:
-            #    purge.sort()
-            #    purgelist = [i for i in reversed(purge)]
-            #    for i in purgelist:
-            #        self.moflib.pop(i)
+
             stringcount+=1
             string = self.iterate_string(string, maxstring)
             [self.moflib.append(i) for i in newlist]
+
+    def valid_struct(self, string, ind):
+        """
+        determine if the structure needs to be deleted.
+        """
+        ints = [int(i) for i in string.split("-")]
+        if ints[0] > len(self.moflib[ind].mof):
+            return False
+        return True
+
 
     def branched_generation(self, dataset, indices):
 
@@ -340,7 +597,7 @@ class Generate(object):
                     bondtype = self.determine_bondtype(string, struct, dataset)
                     struct.bondhist.append(bondtype)
                     self.bondhist[0].append(bondtype)
-                    struct.join_sbus(ints[0], ints[1], sbu2, ints[3], False)
+                    struct.join_sbus(ints[0], ints[1], sbu2, ints[3], True)
                     struct.sbu_check(sbu2)
                     struct.stringhist.append(string)
 
@@ -359,9 +616,8 @@ class Generate(object):
                               struct.acell)
                     write_xyz(self.outdir+filename, dump[0], final_coords, 
                         struct.cell, struct.origins)
-                    structcount += 1
                     # stop the timer
-                    self.stringhist = struct.stringhist
+                    self.stringhist[tuple(indices[:-1])] = struct.stringhist
                     info("Structure generated!")
                     done = True
 
@@ -427,7 +683,7 @@ class Generate(object):
             # Rebuild with the good strings
             struct.apply_string(oldstring)
             struct.join_sbus(oldints[0], oldints[1], 
-                             newsbu, oldints[3], False)
+                             newsbu, oldints[3], True)
             struct.sbu_check(newsbu)
 
 
@@ -473,9 +729,24 @@ class Generate(object):
         
         if struct.connectivity[ints[0]][ints[1]] is not None:
             return "False"
-
-        if struct.mof[ints[0]].ismetal == database[ints[2]].ismetal:
+        # return false if not a special bond
+        if(ints[1] in struct.mof[ints[0]].special_bond) and \
+             (ints[3] in database[ints[2]].special_bond):
+            if struct.mof[ints[0]].ismetal == database[ints[2]].ismetal:
+                 # return false if the same bond
+                 if (struct.mof[ints[0]].symmetrytype[ints[1]] 
+                     == database[ints[2]].symmetrytype[ints[3]]):
+                     return "False"
+            else:
+                return "False"
+        elif(ints[1] in struct.mof[ints[0]].special_bond) != \
+                (ints[3] in database[ints[2]].special_bond):
             return "False"
+
+        elif(ints[1] not in struct.mof[ints[0]].special_bond) and \
+                (ints[3] not in database[ints[2]].special_bond):
+            if struct.mof[ints[0]].ismetal == database[ints[2]].ismetal:
+                return "False"
 
         if struct.mof[ints[0]].ismetal:
             if ints[4] >= len(database[ints[2]].connectangles[ints[3]]):
@@ -564,10 +835,14 @@ class SBU(object):
         # index is used to keep track of the SBU's order when building
         # new structures.  This should be found in the pdb file.
         self.index = 0
+        # internal index to keep track of the bonding rules
+        self.type = None
         self.atomlabel = []
         self.coordinates = []
         if pdbfile is not None:
             self.from_pdb(pdbfile)
+        # store history of functional group replacements
+        self.fnlgrpchoice = []
         self.mass = 0. 
         # TODO(pboyd): change self.connect to something else
         # this is just the intramolecular connectivity matrix
@@ -579,8 +854,13 @@ class SBU(object):
         self.connect_vector = []
         # terminal points of connecting vectors for SBU
         self.connectpoints = []
+        # index of the atoms which form connecting bonds with
+        # other SBUs
+        self.bondingatoms = []
         # angle vectors used to align SBUs once bonded together
         self.anglevect = []
+        # store special bonding indices here
+        self.special_bond = []
 
         # Default metal
         if ismetal is not None:
@@ -608,35 +888,68 @@ class SBU(object):
         # add linking points to the SBU.
         # TODO(pboyd): add possible linking types
         self.add_connect_vector()
-    def add_functional_group(self, fnlgrp):
-        """Adds functional group to the SBU"""
-
         # determine the number of H's in the SBU
-        hydrogens = [i for i in range(len(self.atomlabel)) if 
+        self.hydrogens = [i for i in range(len(self.atomlabel)) if 
                         self.atomlabel[i] == "H"]
 
+    def choose_fnl_sites(self, fnlgrp):
+        """Return an array of hydrogen sites to be replaced with
+        functional groups"""
+        if len(self.hydrogens) == 0:
+            return []
+
+        done = False
+        trial = 0
+        while not done:
+            string = "%i"%(fnlgrp.index)
+            sites = []
+            num = randrange(len(self.hydrogens))
+            for i in range(num+1):
+                h = randrange(len(self.hydrogens))
+                while self.hydrogens[h] in sites:
+                    h = randrange(len(self.hydrogens))
+                string = string + "-%i"%(self.hydrogens[h])
+                sites.append(self.hydrogens[h])
+            # check to make sure this arrangement of fnlgrps hasn't
+            # been used yet.
+            if self.fnl_group_test(string):
+                self.fnlgrpchoice.append(string)
+                done = True
+            else:
+                trial += 1
+            if trial == 40:
+                return None
+        return sites
+
+    def fnl_group_test(self, fnlstr):
+        """Checks to see if a combination of functional group
+        replacements has already been done"""
+        # convert string to integers
+        ints = [int(i) for i in fnlstr.split("-")]
+        # iterate through old fnlgroup strings
+        for old in self.fnlgrpchoice:
+            oldints = [int(i) for i in old.split("-")]
+            if oldints[0] == ints[0]:
+                comb1 = ints[1:]
+                comb2 = oldints[1:]
+                comb1.sort()
+                comb2.sort()
+                if comb1 == comb2:
+                    return False
+        return True
+
+    def add_functional_group(self, fnlgrp, sites):
+        """Adds functional group to the SBU"""
         # return if no hydrogens to add to structure
-        if len(hydrogens) == 0:
+        if len(self.hydrogens) == 0:
             return
-
-        # chose a random number of H's to switch with fnl group
-        num = randrange(len(hydrogens))+1
-
-        record = []
-        info("%i functional groups added"%(num))
+        info("%i functional groups added"%(len(sites)))
         # randomly choose the H's to switch and switch them
-        for i in range(num):
-            done = False
-            while not done:
-                h = randrange(len(hydrogens))
-                if hydrogens[h] not in record:
-                    self.switch(hydrogens[h], copy.copy(fnlgrp))
-                    record.append(hydrogens[h])
-                    done = True
-
-        record.sort()
+        for i in sites:
+            self.switch(i, copy.copy(fnlgrp))
+        sites.sort()
         # remove the hydrogens from the SBU
-        for hydrogen in reversed(record):
+        for hydrogen in reversed(sites):
             self.coordinates.pop(hydrogen) 
             self.atomlabel.pop(hydrogen)
 
@@ -708,7 +1021,7 @@ class SBU(object):
                 self.atomlabel.append(label)
                 self.coordinates.append([float(line[30:38]), 
                     float(line[38:46]), float(line[47:54])])
-                if label == "X":
+                if (label == "X") or (label == "G"):
                     # error if no symmetry type is included.
                     self.symmetrytype.append(int(line[80:85]))
                     angles = [float(i) for i in line[86:].split()]
@@ -764,10 +1077,14 @@ class SBU(object):
         purgeatoms = []
         for indx, atom in enumerate(self.atomlabel):
             # test for "X" atoms (considered a linking point)
-            if atom == "X":
+            if (atom == "X") or (atom == "G"):
                 # there should only be a "Y" and a "Z" bonding to an "X"
                 # TODO(pboyd): add error checking if Y and Z not on X
                 # also, if no X atom
+                if (atom == "G"):
+                    # flag this bond as a special case
+                    # this is the index for the bond.
+                    self.special_bond.append(len(self.connectpoints))
                 for i in self.bonding[indx]:
                     if self.atomlabel[i] == "Y":
                         # angle vector required to align SBUs
@@ -780,10 +1097,13 @@ class SBU(object):
                                         self.coordinates[indx])
                         self.connect_vector.append(vect)
                         purgeatoms.append(i)
+
+                    else:
+                        self.bondingatoms.append(i)
+                
                 pt = self.coordinates[indx]
                 self.connectpoints.append(pt)
                 purgeatoms.append(indx)
-
         # purge any coordinates in self.coordinates belonging to "X"'s
         # and "Y"'s as they are now part of self.connect_vector 
         # and self.connectpoints and self.anglevect
@@ -797,6 +1117,11 @@ class SBU(object):
         """Remove entries for X and Y atoms in the atomic coordinates"""
         atoms.sort()
         for patm in reversed(atoms):
+            # correct for index of bonding atoms when purging 
+            # connectivity data
+            for idx, atom in enumerate(self.bondingatoms):
+                if atom > patm:
+                    self.bondingatoms[idx] = atom -  1
             self.coordinates.pop(patm)
             self.atomlabel.pop(patm)
             self.nbonds.pop(patm)
@@ -894,9 +1219,7 @@ class Functional_group(object):
 
         if (file is not None):
             self.from_pdb(file)
-
             structure = coord_matrix(self.atomlabel, self.coordinates)
-            
             self.evaluate_bonding(structure[1])
 
     def evaluate_bonding(self, bonding):
@@ -975,57 +1298,27 @@ class Structure(object):
         sbuarray = self.sbu_array
         self.__init__(sbuarray)
 
-    def try_iterate_string(self, string):
-        """check whether a string will form an appropriate bond"""
-        values = string.split("-")
-        xarray = [int(i) for i in values]
-        isbu = xarray[0]
-        ibond = xarray[1]
-        nsbu = xarray[2]
-        nbond = xarray[3]
-        nangle = xarray[4]
-        xarray.reverse()
+    def apply_rule(self, key, pair):
+        """
+        applies the bonding rule [pair] to the sbu defined by [key].
+        """
+        sbu = key[0]
+        bond = key[1]
+        angle = key[2]
 
-        maxisbu = self.maxsbu # isbu will be continually growing.
-        if isbu >= len(self.mof):
-            return False
-        maxibond = len(self.mof[isbu].connectpoints)
-        maxnsbu = len(self.sbu_array)
-        maxnbond = len(self.sbu_array[nsbu].connectpoints)
-        if self.mof[isbu].ismetal:
-            maxnangle = len(self.sbu_array[nsbu].connectangles[nbond])
-        else:
-            maxnangle = len(self.mof[isbu].connectangles[ibond])
-        # reversed from string order for iteration purposes
-        maxarray = [maxnangle, maxnbond, maxnsbu, maxibond, maxisbu]
-        # assume only one type of bond (correct for both BTC and Cu-paddlewheel)
-        maxarray = [maxnangle, 1, maxnsbu, maxibond, 99]
+        new_sbu = pair[0]
+        new_bond = pair[1]
+        new_angle = pair[2]
 
-        # iterate the string
-        for ival, value in enumerate(xarray):
-            if value == (maxarray[ival]-1):
-                xarray[ival] = 0
-            else: 
-                xarray[ival] += 1
-                self.string =  "%i-%i-%i-%i-%i"%(tuple(xarray[::-1]))
-                break
-        if isbu == maxisbu:
-            # TODO(pboyd): Raise flag for termination.
-            return False
-        xarray.reverse()
-        if xarray[0] >= len(self.mof):
-            return False
-        # TODO(pboyd): further checks?
-        # not a metal to organic bond?
-        falsetest2 = self.sbu_array[xarray[2]].ismetal == \
-                        self.mof[xarray[0]].ismetal
-        # existing SBU is already bonded?
-        falsetest3 = self.connectivity[xarray[0]][xarray[1]] is not None
-
-        if (falsetest2) or (falsetest3):
-            return False
-        else:
-            return True 
+        # angles are typically placed on the organic unit, so choose
+        # the angle from the organic unit.
+        # Exceptions to this are when a metal cluster bonds to a 
+        # metal cluster.
+        if self.mof[sbu].ismetal:
+            angle = new_angle 
+        else: 
+            angle = angle
+        self.add_new_sbu(sbu, bond, new_sbu, new_bond, angle)
 
     def apply_string(self, string):
         """applies the directions from a string"""
@@ -1052,8 +1345,8 @@ class Structure(object):
         bond1 = int(strlist[1])
         sbu2 = len(self.mof) - 1
         bond2 = int(strlist[3])
-        # FIXME(pboyd): overlap not returning true in some cases.
-        if self.overlap(sbu2):
+        # checks overlap over all atoms
+        if self.overlap_allcheck():
             return True
         return False
 
@@ -1114,7 +1407,7 @@ class Structure(object):
                         "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
                         "and SBU %i, bond %i."%(bond[1][0],bond[1][1]))
                 self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
-                               bond[1][1], False)
+                               bond[1][1], True)
                 try:
                     del bonds[bond[0]]
                 except:
@@ -1215,7 +1508,8 @@ class Structure(object):
         # test by cross product, the vector should be (0,0,0)
         xprod = cross(vector1, vector2)
         xtest = np.allclose(xprod, np.zeros(3), atol=0.1)
-
+        # FIXME(pboyd):  FIX THIS
+        return True
         if dottest and xtest:
             # check to see if the vector can be added to the 
             # existing lattice vectors
@@ -1309,22 +1603,112 @@ class Structure(object):
         bonds = [i for i in range(len(self.connectivity[sbu1])) 
                  if self.connectivity[sbu1][i] is None]
         # remove sbu1 from scan
-        mofscan = [i for i in range(len(self.mof)) if i is not sbu1]
+        mofscan = [i for i in range(len(self.mof))]
         bonding_dic = {}
         
         for sbu2 in mofscan:
-            if self.mof[sbu1].ismetal != self.mof[sbu2].ismetal:
-                bonds2 = [i for i in range(len(self.connectivity[sbu2]))
+            bonds2 = [i for i in range(len(self.connectivity[sbu2]))
                       if self.connectivity[sbu2][i] is None]
-                for bond2 in bonds2:
-                    for bond1 in bonds:
+            for bond2 in bonds2:
+                for bond1 in bonds:
+                    if (self.validbond(sbu1, sbu2, bond1, bond2)):
                         vect1 = self.mof[sbu1].connect_vector[bond1]
                         vect2 = self.mof[sbu2].connect_vector[bond2]
                         # note the tolerance here will dictate how many
                         # structures will be found
-                        if antiparallel_test(vect1, vect2, tol=0.15):
+                        if antiparallel_test(vect1, vect2, tol=0.25):
                             bonding_dic.setdefault(bond1,[]).append([sbu2,bond2])
         return bonding_dic
+
+    def validbond(self, idx1, idx2, bnd1, bnd2):
+        """Checks for bond type validity."""
+        sbu1 = self.mof[idx1]
+        sbu2 = self.mof[idx2]
+
+        if (bnd1 in sbu1.special_bond) and (bnd2 in sbu2.special_bond):
+            if sbu1.symmetrytype[bnd1] != sbu2.symmetrytype[bnd2]:
+                return True
+        elif (bnd1 not in sbu1.special_bond) and (bnd2 not in 
+                sbu2.special_bond):
+            if not (sbu1.ismetal == sbu2.ismetal):
+                return True
+        return False
+
+    def overlap_allcheck(self):
+        """
+        checks for all pairwise atomistic overlaps in a growing MOF
+        """
+        # tolerance in angstroms
+        tol = 1.5
+        # TODO(pboyd): include minimum image conv. when determining
+        # distances.
+        for idx1, sbu in enumerate(self.mof):
+            for idx2 in range(idx1+1, len(self.mof)):
+                bonded_atoms = (None, None)
+                if self.bonded(idx1, idx2):
+                    # return atoms which form bond
+                    bonded_atoms = self.bonded_atoms(idx1, idx2)
+                sbu2 = self.mof[idx2]
+                distmat = distance.cdist(sbu.coordinates, sbu2.coordinates)
+                #distmat = self.min_imgconv(distmat)
+                check = [(i,j) for i in range(len(distmat)) for 
+                        j in range(len(distmat[i])) if 
+                        distmat[i][j] <= tol and (bonded_atoms != (i,j))]
+                if len(check) > 0:
+                    for ovlp in check:
+                        warning(
+                        "overlap found between SBU %i (%s), atom %i, "%
+                        (idx1, sbu.name, ovlp[0]) + "%s and SBU %i (%s),"
+                        %(sbu.atomlabel[ovlp[0]], idx2, sbu2.name) +
+                        "atom %i, %s."%(ovlp[1], sbu2.atomlabel[ovlp[1]]))
+                    return True
+        return False
+
+    def bonded(self, idx1, idx2):
+        """
+        determine if sbu index 1 and sbu index2 is bonded.
+        """
+        # only need to check to see if one of the sbu's is connected
+        # to the other.
+        bonds = [isbond for isbond in self.connectivity[idx1] if 
+                 idx2 == isbond]
+        if bonds:
+            return True
+        return False
+
+    def bonded_atoms(self, idx1, idx2):
+        """
+        Determine which atoms form the bond between sbu's idx1
+        and idx2.
+        """
+        sbu1 = self.mof[idx1]
+        sbu2 = self.mof[idx2]
+        bndindx1 = [idx for idx in range(len(self.connectivity[idx1]))
+                if self.connectivity[idx1][idx] == idx2]
+        bndindx2 = [idx for idx in range(len(self.connectivity[idx2]))
+                if self.connectivity[idx2][idx] == idx1]
+        return (sbu1.bondingatoms[bndindx1[0]], 
+                sbu2.bondingatoms[bndindx2[0]])
+
+    def min_imgconv(self, distmat):
+        """
+        Takes a distance matrix and reduces the distances to the 
+        minimum image convention.
+        """
+        # Step 1 convert distances to fractional coordinates.  If 
+        # there are no periodic boundaries forget this entire routine.
+
+        fdist = fractional(distmat)
+
+        # Step 2 apply minimum image convention to fractional coordinates
+
+        #distmat = minimg.
+
+        # Step 3 convert back to cartesian coordinates
+
+        distmat = distmat * cellvectors
+
+        return distmat
 
     def overlap(self, sbu1, tol=None):
         """
@@ -1363,10 +1747,6 @@ class Structure(object):
     def add_new_sbu(self, sbu1, bond1, sbutype2, bond2, iangle):
         """adds a new sbutype2 to the growing MOF"""
 
-        self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
-
         # use angle listed on organic species bond type
         if self.sbu_array[sbutype2].ismetal:
             angle = self.mof[sbu1].connectangles[bond1][iangle]
@@ -1385,7 +1765,6 @@ class Structure(object):
         write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
-        print len(self.mof[sbu2].coordinates)
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
         self.xyz_debug()
@@ -1394,6 +1773,10 @@ class Structure(object):
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
+
+        self.xyz_debug()
+        dump = self.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
     def bond_align(self, sbu1, bond1, sbu2, bond2, rotangle):
         """
@@ -1424,7 +1807,6 @@ class Structure(object):
         self.sbu_rotation(sbu2, rotpoint, axis, angle + rotangle)
         angle2 = calc_angle(sbu1.anglevect[bond1],
                            sbu2.anglevect[bond2])
-        
     def sbu_align(self, sbu1, bond1, sbu2, bond2):
         """
         Align two sbus, were sbu1 is held fixed and
@@ -1451,9 +1833,9 @@ class Structure(object):
             randangle = uniform(0., np.pi/3.)
             self.sbu_rotation(sbu2, rotpoint, randaxis, randangle)
             axis = rotation_axis(sbu2.connect_vector[bond2], 
-                             scale_mult(-1.,sbu1.connect_vector[bond1]))
+                             scalar_mult(-1.,sbu1.connect_vector[bond1]))
             angle = calc_angle(sbu2.connect_vector[bond2], 
-                           scale_mult(-1.,sbu1.connect_vector[bond1]))
+                           scalar_mult(-1.,sbu1.connect_vector[bond1]))
 
         # rotate sbu2
         self.sbu_rotation(sbu2, rotpoint, axis, angle)
@@ -1526,33 +1908,23 @@ class Structure(object):
         return
 
     def fractional(self, vector):
+        
         """
         returns fractional coordinates based on the periodic boundary
         conditions
         """
-        A = self.cell[0]
-        B = self.cell[1]
-        C = self.cell[2]
-
-        bca = dot(B, cross(C,A))
-        a = dot(C, cross(vector, B)) / bca
-        b = dot(C, cross(vector, A)) / (-1.*bca)
-        c = dot(B, cross(vector, A)) / bca
+        (a,b,c) = matrx_mult(vector, self.icell)
         a = a - math.floor(a)
         b = b - math.floor(b)
         c = c - math.floor(c)
-       
         return [a,b,c]
 
     def getfractionals(self):
         """
         stores the fractional coordinates of the mof
         """
-        fractionals = []
-        for i in self.mof:
-            for j in i.coordinates:
-                fractionals.append(self.fractional(j))
-
+        fractionals = [self.fractional(coord) for sbu in self.mof 
+                        for coord in sbu.coordinates ]
         self.fcoords = fractionals
                 
     def mof_reorient(self):
@@ -1583,7 +1955,7 @@ class Structure(object):
         testvect = matrx_mult(projx_b, RXY)
         testangle = calc_angle(testvect, yaxis)
         if not np.allclose(testangle, 0., atol = 1e-3):
-            RXY = rotation_matrix(-1.*xy_rotaxis, xy_rotangle)
+            RXY = rotation_matrix(scalar_mult(-1.,xy_rotaxis), xy_rotangle)
 
         self.cell = [matrx_mult(i, RXY) for i in self.cell]
         # third change: -z to +z direction
@@ -1602,6 +1974,12 @@ class Structure(object):
             if [no_bond for no_bond in mof if no_bond is None]:
                 return False
         return True
+
+    def disjoin_sbus(self, sbu1, bond1, sbu2, bond2):
+        """ deletes a bond between SBU's """
+        self.connectivity[sbu1][bond1] = None
+        self.connectivity[sbu2][bond2] = None
+
 
     def join_sbus(self, sbu1, bond1, sbu2, bond2, islocal):
         """ Joins two sbus together"""
@@ -1626,7 +2004,6 @@ class Structure(object):
             return vector
         if self.pbcindex == 0:
             vector = vectorshift(vector, A)
-            #vector = vector
         elif self.pbcindex == 1:
             proj_a = project(vector, self.cell[0])
             proj_b = project(vector, self.cell[1])
@@ -1645,59 +2022,24 @@ class Structure(object):
             vector = vect_sub(vector, scalar_mult(math.floor(b),B))
 
         elif self.pbcindex == 2:
-            bca = dot(B, cross(C,A))
-            a = dot(C, cross(vector, B)) / bca
-            b = dot(C, cross(vector, A)) / (-1.*bca)
-            c = dot(B, cross(vector, A)) / bca
+            (a, b, c) = matrx_mult(vector, self.icell)
+            #bca = dot(B, cross(C, A))
+            #a = dot(C, cross(vector, B)) / bca
+            #b = dot(C, cross(vector, A)) / (-1.*bca)
+            #c = dot(B, cross(vector, A)) / bca
+
+            #a = a - math.floor(a)
+            #b = b - math.floor(b)
+            #c = c - math.floor(c)
             
             a = a - round(a)
             b = b - round(b)
             c = c - round(c)
+
+            #vector2 = matrx_mult([a,b,c], self.cell)
             vector = scalar_mult(a,A)
             vector = vect_add(vector, scalar_mult(b,B))
             vector = vect_add(vector, scalar_mult(c,C))
-
-        return vector
-
-    def pbc_final(self, vector):
-        """
-        Shifts all atoms to within the final cell box
-        """
-        A = self.cell[0]
-        B = self.cell[1]
-        C = self.cell[2]
-        if np.allclose(vector, np.zeros(3)):
-            return vector
-        if self.pbcindex == 0:
-            vector = vectorshift(vector, A)
-            #vector = vector
-        elif self.pbcindex == 1:
-            proj_a = project(vector, self.cell[0])
-            proj_b = project(vector, self.cell[1])
-            a = length(proj_a) / length(self.cell[0])
-            b = length(proj_b) / length(self.cell[1])
-            if antiparallel_test(proj_a, self.cell[0]):
-                a = -1.*a
-            if antiparallel_test(proj_b, self.cell[1]):
-                b = -1.*b
-            # round a and b to 4 decimal places.  Precision can cause
-            # problems if a and b are really close to 1, but under
-            # so math.floor doesn't subtract by 1.
-            vector = vect_sub(vector, scalar_mult(math.floor(a),A)) 
-            vector = vect_sub(vector, scalar_mult(math.floor(b),B))
-        elif self.pbcindex == 2:
-
-            bca = dot(B, cross(C,A))
-            a = dot(C, cross(vector, B)) / bca
-            b = dot(C, cross(vector, A)) / (-1.*bca)
-            c = dot(B, cross(vector, A)) / bca
-
-            a = a - math.floor(round(a,4))
-            b = b - math.floor(round(b,4))
-            c = c - math.floor(round(c,4))
-            vector = scalar_mult(a,A)
-            vector = vect_add(vector, scalar_mult(b,B))
-            vecotr = vect_add(vector, scalar_mult(c,C))
         return vector
 
     def xyz_debug(self, filename=None):
@@ -1732,13 +2074,13 @@ class Structure(object):
         for sbu in self.mof:
             for ibond, bondpt in enumerate(sbu.connectpoints):
                 atomcount += 1
-                bondpt = self.pbc_final(bondpt)
+                bondpt = self.apply_pbc(bondpt)
                 line.append(bondformat%(tuple(["F"]+list(bondpt)+
                                         list(sbu.connect_vector[ibond])+
                                         list(sbu.anglevect[ibond]))))
             for icoord, coord in enumerate(sbu.coordinates): 
                 atomcount += 1
-                coord = self.pbc_final(coord)
+                coord = self.apply_pbc(coord)
                 line.append(atomformat%(tuple([sbu.atomlabel[icoord]]+list(coord))))
 
         xyzfile.write("%i\nDebug\n"%atomcount)
@@ -1767,6 +2109,9 @@ class Structure(object):
         self.pbcindex +=1
         self.cell[self.pbcindex] = vect
         self.ncell[self.pbcindex] = normalize(vect)
+        if self.pbcindex == 2:
+            self.cellparams()
+            self.invert_cell()
 
     def plane_test(self, vector, tol=None):
         """
@@ -1804,26 +2149,17 @@ class Structure(object):
         """ get the inverted cell for pbc corrections"""
         det = determinant(self.cell)
 
-        a = self.cell[1][1] * self.cell[2][2] - \
-            self.cell[1][2] * self.cell[2][1]
-        b = self.cell[1][2] * self.cell[2][0] - \
-            self.cell[1][0] * self.cell[2][2]
-        c = self.cell[1][0] * self.cell[2][1] - \
-            self.cell[1][1] * self.cell[2][0]
-        d = self.cell[0][2] * self.cell[2][1] - \
-            self.cell[0][1] * self.cell[2][2]
-        e = self.cell[0][0] * self.cell[2][2] - \
-            self.cell[0][2] * self.cell[2][0]
-        f = self.cell[2][0] * self.cell[0][1] - \
-            self.cell[0][0] * self.cell[2][1]
-        g = self.cell[0][1] * self.cell[1][2] - \
-            self.cell[0][2] * self.cell[1][1]
-        h = self.cell[0][2] * self.cell[1][0] - \
-            self.cell[0][0] * self.cell[1][2]
-        i = self.cell[0][0] * self.cell[1][1] - \
-            self.cell[0][1] * self.cell[1][0]
-        mat = [[a,b,c],[d,e,f],[g,h,i]]
-        self.icell = [scalar_div(det, i) for i in mat]
+        a = self.cell[0][0]; b = self.cell[0][1]; c = self.cell[0][2]
+        d = self.cell[1][0]; e = self.cell[1][1]; f = self.cell[1][2]
+        g = self.cell[2][0]; h = self.cell[2][1]; k = self.cell[2][2]
+
+        A = (e*k - f*h); B = (c*h - b*k); C = (b*f - c*e)
+        D = (f*g - d*k); E = (a*k - c*g); F = (c*d - a*f)
+        G = (d*h - e*g); H = (g*b - a*h); K = (a*e - b*d)
+
+        self.icell = [[A/det, B/det, C/det],
+                      [D/det, E/det, F/det],
+                      [G/det, H/det, K/det]]
         return
 
     def cellparams(self):
@@ -1842,8 +2178,6 @@ class Structure(object):
         if np.allclose(volume, 0., atol=tol):
             return False
         else:
-            self.cellparams()
-            self.invert_cell()
             return True
 
 class Database(object):
@@ -1932,8 +2266,11 @@ def vectorshift(shift_vector, root_vector):
 
 def determinant(matrix):
     """ calculates the determinant of a 3x3 matrix"""
-    return dot(matrix[0],cross(matrix[1],matrix[2]))
-
+    a = matrix[0][0]; b = matrix[0][1]; c = matrix[0][2]
+    d = matrix[1][0]; e = matrix[1][1]; f = matrix[1][2]
+    g = matrix[2][0]; h = matrix[2][1]; i = matrix[2][2]
+    det = a*e*i + b*f*g + c*d*h - c*e*g - b*d*i - a*f*h
+    return det
 
 def coord_matrix(atom, coord):
     """
@@ -1968,18 +2305,28 @@ def bond_tolerance(atom1, atom2):
     # should be changed when the code becomes bigger
     if("O" in [atom1,atom2])and("C" in [atom1,atom2]):
         return 1.6
-    elif("X" in (atom1,atom2))and(("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2))):
-        return 0.
-    elif("X" in (atom1,atom2))and(("Y" in (atom1,atom2))or("Z" in (atom1,atom2))):
+    # G is the metal - metal bond for linked chains
+    elif("G" in (atom1,atom2) and 
+        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
         return 1.1
-    elif("Y" in (atom1,atom2))and("X" not in (atom1,atom2)):
-        return 0.
-    elif("Y" in (atom1,atom2))and("X" in (atom1,atom2)):
+    elif("X" in (atom1, atom2) and 
+        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
+        return 0.9
+    elif("G" in (atom1,atom2) or "X" in (atom1, atom2))and \
+        (("Y" in (atom1,atom2))or("Z" in (atom1,atom2))):
         return 1.1
-    elif("Z" in (atom1,atom2))and("X" not in (atom1,atom2)):
+    elif("Y" in (atom1,atom2))and("G" not in (atom1,atom2) 
+            or "X" not in (atom1,atom2)):
         return 0.
-    elif("Z" in (atom1,atom2))and("X" in (atom1,atom2)):
-        return 1.1
+    elif("Z" in (atom1,atom2))and("G" not in (atom1,atom2) 
+            or "X" not in (atom1,atom2)):
+        return 0.
+    elif("Br" in (atom1,atom2))and("J" in (atom1,atom2)):
+        return 2.0
+    elif("I" in (atom1,atom2))and("J" in (atom1,atom2)):
+        return 2.5
+    elif("Cl" in (atom1,atom2))and("J" in (atom1,atom2)):
+        return 1.8 
     else:
         return 1.6
 
@@ -1992,16 +2339,9 @@ def length(coord1, coord2=None):
     if coord2 is not None:
         coord2 = coord2
     else:
-        coord2 = np.zeros(3)
-
-    test1 = [i*i for i in coord1]
-    test1 = sum(test1) == 0.
-    test2 = [i*i for i in coord2]
-    test2 = sum(test2) == 0.
-    if test1 and test2:
-        return 0.
-    vector = vect_sub(coord2,coord1)
-    return math.sqrt(dot(vector, vector))
+        coord2 = zeros1
+    dist = distance.cdist([coord1], [coord2], 'euclidean')[0][0]
+    return dist 
 
 def rotation_axis(vect1, vect2):
     """
@@ -2244,5 +2584,6 @@ def main():
     open('debug.xyz', 'w')
     genstruct = Generate()
     genstruct.database_generation()
+    #genstruct.bondrule_generation()
 if __name__ == '__main__':
     main()

@@ -125,7 +125,8 @@ WEIGHT = {
     "Uuo": 294,
     "X": 0,
     "Y": 0,
-    "Z": 0}
+    "Z": 0,
+    "G": 0}
 
 # If this is a nice list we can just .index or [slice] to get atomic numbers
 ATOMIC_NUMBER = [
