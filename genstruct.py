@@ -234,12 +234,6 @@ class Generate(object):
                                 # attach functional groups
                                 org.add_functional_group(fnl, sites)
                         dataset = [met, org]
-                        #self.stringhist[(i.index, j.index)] = [ 
-                        # '0-0-1-0-0', '0-1-1-0-0', '0-2-1-0-0', 
-                        # '0-3-1-0-0', '1-1-0-0-0', '5-1-1-0-0', 
-                        # '5-3-1-0-0', '6-1-0-0-0']
-                        #self.apply_strings(dataset, indices)
-                        #sys.exit()
                         # build MOF
                         if self.stringhist.get((i.index,j.index)) is not None:
                             if self.stringhist.get((i.index, j.index)) == "Bad":
@@ -278,7 +272,7 @@ class Generate(object):
         struct = Structure(dataset)
         self.random_insert(0, dataset, struct)
         # check for periodic bonds with itself.
-        i = 0
+        struct.sbu_check(0)
         for string in self.stringhist[tuple(indices[:-1])]:
             ints = [int(i) for i in string.split("-")]
             debug("Applying %s"%(string))
@@ -453,9 +447,6 @@ class Generate(object):
         set of strings will be attempted until 5 structures are built
         or it runs out of strings.
         """
-    #FIXME(pboyd): it doesn't seem to terminate at moflib = 1000
-    # also, there are distrubingly long periods of inaction when 
-    # running the code.
         # call the Structure class with a set of SBU's and rules to
         # attempt to build the MOF
         self.moflib = []
@@ -528,6 +519,7 @@ class Generate(object):
                     self.stringhist[tuple(indices[:-1])] = newstruct.stringhist
                     # just terminate
                     done = True
+                    break
                 # Terminate if the number of possible mof structures 
                 # gets too big.
                 if len(self.moflib) == 1000:
@@ -552,7 +544,7 @@ class Generate(object):
         determine if the structure needs to be deleted.
         """
         ints = [int(i) for i in string.split("-")]
-        if ints[0] > len(self.moflib[ind].mof):
+        if ints[0] >= len(self.moflib[ind].mof):
             return False
         return True
 
@@ -696,6 +688,7 @@ class Generate(object):
         # all possibilities are exhausted without joining two SBUs
         # then go back to the previous SBU and change it.
         # TODO(pboyd): this needs to be hashed out.
+
         if ints[0] >= len(struct.mof):
             return "Backup"
       
@@ -719,7 +712,10 @@ class Generate(object):
         if (ints[2] == len(database)-1) and \
             (ints[3] == len(database[ints[2]].connect_vector) - 1):
             if struct.connectivity[ints[0]][ints[1]] is None:
-                return "Backup"
+                pass
+                # technically illegal because it skips a series of
+                # MOF sampling but speeds up the algorithm
+                #return "Backup"
 
         if ints[2] >= len(database):
             return "False"
@@ -733,7 +729,7 @@ class Generate(object):
         if(ints[1] in struct.mof[ints[0]].special_bond) and \
              (ints[3] in database[ints[2]].special_bond):
             if struct.mof[ints[0]].ismetal == database[ints[2]].ismetal:
-                 # return false if the same bond
+                # return false if the same bond
                  if (struct.mof[ints[0]].symmetrytype[ints[1]] 
                      == database[ints[2]].symmetrytype[ints[3]]):
                      return "False"
@@ -952,6 +948,9 @@ class SBU(object):
         for hydrogen in reversed(sites):
             self.coordinates.pop(hydrogen) 
             self.atomlabel.pop(hydrogen)
+            for idx, atom in enumerate(self.bondingatoms):
+                if hydrogen < atom:
+                    self.bondingatoms[idx] = atom - 1 
 
     def switch(self, hydrogen, fnlgrp):
         """ switch a hydrogen for a functional group"""
@@ -1423,7 +1422,7 @@ class Structure(object):
             if self.periodic_vector(sbu_ind1, bond, bondvects[bond]):
                 if self.connectivity[sbu_ind1][bond[0]] is None and \
                         self.connectivity[bond[1][0]][bond[1][1]] is \
-                        None:
+                        None and self.pbcindex < 2:
                     info("New periodic boundary formed between "+
                     "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
                     "and SBU %i, bond %i "%(bond[1][0],bond[1][1])+
@@ -1509,7 +1508,7 @@ class Structure(object):
         xprod = cross(vector1, vector2)
         xtest = np.allclose(xprod, np.zeros(3), atol=0.1)
         # FIXME(pboyd):  FIX THIS
-        return True
+        #return True
         if dottest and xtest:
             # check to see if the vector can be added to the 
             # existing lattice vectors
