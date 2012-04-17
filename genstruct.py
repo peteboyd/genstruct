@@ -209,7 +209,9 @@ class Generate(object):
 
         orgncs = self.sort(orgncs)
         metals = self.sort(metals)
-        fnlgrp = [None] + fnlgrp
+        #fnlgrp = [None] + fnlgrp
+        # Tom asked for a no functionalization routine.  
+        fnlgrp = [None]
 
         for i in metals:
             for j in orgncs:
@@ -522,13 +524,15 @@ class Generate(object):
                     break
                 # Terminate if the number of possible mof structures 
                 # gets too big.
-                if len(self.moflib) == 1000:
+                if len(self.moflib) >= 400:
                     self.stringhist[tuple(indices[:-1])] = "Bad"
                     done = True
+                    break
                 # Terminate if the size of the MOF gets too big.
                 if len(newstruct.mof) > 20:
                     self.stringhist[tuple(indices[:-1])] = "Bad"
                     done = True
+                    break
             for i in reversed(purge):
                 self.moflib.pop(i)
             if len(self.moflib) == 0:
@@ -712,10 +716,10 @@ class Generate(object):
         if (ints[2] == len(database)-1) and \
             (ints[3] == len(database[ints[2]].connect_vector) - 1):
             if struct.connectivity[ints[0]][ints[1]] is None:
-                pass
+                #pass
                 # technically illegal because it skips a series of
                 # MOF sampling but speeds up the algorithm
-                #return "Backup"
+                return "Backup"
 
         if ints[2] >= len(database):
             return "False"
@@ -1507,13 +1511,17 @@ class Structure(object):
         # test by cross product, the vector should be (0,0,0)
         xprod = cross(vector1, vector2)
         xtest = np.allclose(xprod, np.zeros(3), atol=0.1)
-        # FIXME(pboyd):  FIX THIS
-        #return True
-        if dottest and xtest:
+        # FIXME(pboyd): temporary fix for the fact that this constraint
+        # won't work for chain-type structures like In3+
+        padd_test = "paddlewheel" in self.sbu_array[0].name
+        if padd_test:
+            if dottest and xtest:
             # check to see if the vector can be added to the 
             # existing lattice vectors
-            if self.valid_vector(bondvector):
-                return True
+                if self.valid_vector(bondvector):
+                    return True
+        else:
+            return True
 
         return False
 
@@ -1759,23 +1767,23 @@ class Structure(object):
             "Added %s, SBU %i, bond %i to SBU %i, %s bond %i."
             %(self.mof[sbu2].name, sbu2, bond2, sbu1,
               self.mof[sbu1].name, bond1))
-        self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        #self.xyz_debug()
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        #self.xyz_debug()
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
-        self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        #self.xyz_debug()
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
     def bond_align(self, sbu1, bond1, sbu2, bond2, rotangle):
         """
@@ -2091,11 +2099,11 @@ class Structure(object):
         checks a vector against existing cell vectors
         """
         for i in range(self.pbcindex+1):
-            if self.line_test(i, vect):
+            if self.line_test(i, vect, tol=0.2):
                 print "parallel boundary vector exists!"
                 return False
         if self.pbcindex == 1:
-            if self.plane_test(vect):
+            if self.plane_test(vect, tol=0.2):
                 print "vector lies in the same plane!"
                 return False
         if self.pbcindex == 2:
@@ -2537,8 +2545,8 @@ def write_pdb(label, atoms, coords, acell):
     today = date.today()
     lines = []
     atomformat1 = "%-6s%5i %-4s %3s %1s%4i%s   "
-    atomformat2 = "%8.3f%8.3f%8.3f%6.2f%6.2f            %-3s%2s\n"
-    lines.append("%6s   GenStruct! created by: Suck it Wilmer.\n" % (
+    atomformat2 = "%8.3f%8.3f%8.3f%6.2f%6.2f         %-3s%2s\n"
+    lines.append("%6s   GenStruct! created by: Anon.\n" % (
                   'REMARK'))
     lines.append("%6s   Created: %s \n%-6s" % ('REMARK', 
                   today.strftime("%A %d %B %Y"), 'CRYST1'))
