@@ -2546,7 +2546,7 @@ def write_pdb(label, atoms, coords, acell):
     lines = []
     atomformat1 = "%-6s%5i %-4s %3s %1s%4i%s   "
     atomformat2 = "%8.3f%8.3f%8.3f%6.2f%6.2f         %-3s%2s\n"
-    lines.append("%6s   GenStruct! created by: Anon.\n" % (
+    lines.append("%6s   GenStruct! created by: Aliens.\n" % (
                   'REMARK'))
     lines.append("%6s   Created: %s \n%-6s" % ('REMARK', 
                   today.strftime("%A %d %B %Y"), 'CRYST1'))
