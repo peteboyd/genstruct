@@ -489,7 +489,6 @@ class Generate(object):
                     # can recognize the sbus as being bound together.
                     newstruct.join_sbus(dir[0], dir[1], sbu2,
                                             dir[3], True)
-                    #if newstruct.bad_addition(string, newstruct):
                     if newstruct.overlap_allcheck():
                         newstruct.disjoin_sbus(dir[0], dir[1], sbu2,
                                                 dir[3])
@@ -571,7 +570,6 @@ class Generate(object):
         dump = struct.coordinate_dump()
         write_xyz("history", dump[0], dump[1], struct.cell, struct.origins)
         step = 0
-        # start the timer
         while not done:
             string = self.strings[step]
             stringtype = self.valid_string(string, struct, dataset)
@@ -582,25 +580,25 @@ class Generate(object):
                     (len(struct.mof)))
                 sbu2 = len(struct.mof)
                 struct.apply_string(string)
-                if struct.bad_addition(string, struct):
+                struct.join_sbus(ints[0], ints[1], sbu2, ints[3], True)
+                struct.sbu_check(sbu2)
+                if struct.overlap_allcheck():
                     warning("SBU overlap occured")
                     # remove the SBU from the list, try an incremented
                     # string.
                     struct.mof.pop()
                     struct.connectivity.pop()
+                    struct.disjoin_sbus(ints[0], ints[1], sbu2, ints[3])
 
                 else:
                     bondtype = self.determine_bondtype(string, struct, dataset)
                     struct.bondhist.append(bondtype)
                     self.bondhist[0].append(bondtype)
-                    struct.join_sbus(ints[0], ints[1], sbu2, ints[3], True)
-                    struct.sbu_check(sbu2)
                     struct.stringhist.append(string)
 
                 struct.complete_box()
                 if struct.saturated() and struct.complete_box():
-                    #struct.final_coords()
-                    struct.getfractionals()
+                    struct.final_coords()
                     struct.mof_reorient()
                     final_coords = struct.getfinals()
                     dump = struct.coordinate_dump()
@@ -1767,23 +1765,23 @@ class Structure(object):
             "Added %s, SBU %i, bond %i to SBU %i, %s bond %i."
             %(self.mof[sbu2].name, sbu2, bond2, sbu1,
               self.mof[sbu1].name, bond1))
-        #self.xyz_debug()
-        #dump = self.coordinate_dump()
-        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        self.xyz_debug()
+        dump = self.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        #self.xyz_debug()
-        #dump = self.coordinate_dump()
-        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        self.xyz_debug()
+        dump = self.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
-        #self.xyz_debug()
-        #dump = self.coordinate_dump()
-        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        self.xyz_debug()
+        dump = self.coordinate_dump()
+        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
     def bond_align(self, sbu1, bond1, sbu2, bond2, rotangle):
         """
