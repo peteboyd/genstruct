@@ -213,6 +213,8 @@ class Generate(object):
         # Tom asked for a no functionalization routine.  
         fnlgrp = [None]
 
+        #self.branched_generation([metals[0], orgncs[0]], [1,1,0])
+        #sys.exit(0)
         for i in metals:
             for j in orgncs:
                 for k in fnlgrp:
@@ -492,6 +494,8 @@ class Generate(object):
                     if newstruct.overlap_allcheck():
                         newstruct.disjoin_sbus(dir[0], dir[1], sbu2,
                                                 dir[3])
+                    #if False:
+                    #    pass
                     else:
                         newstruct.sbu_check(sbu2)
                         # store the bonding type in history lists
@@ -2313,10 +2317,10 @@ def bond_tolerance(atom1, atom2):
     # G is the metal - metal bond for linked chains
     elif("G" in (atom1,atom2) and 
         (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
-        return 1.1
+        return 1.35
     elif("X" in (atom1, atom2) and 
         (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
-        return 0.9
+        return 0.97
     elif("G" in (atom1,atom2) or "X" in (atom1, atom2))and \
         (("Y" in (atom1,atom2))or("Z" in (atom1,atom2))):
         return 1.1
