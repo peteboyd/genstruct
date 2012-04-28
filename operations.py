@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import math
 
 """
 Module to accompany genstruct.  This will contain the operations needed
@@ -9,6 +10,14 @@ numpy from genstruct.
 zeros3 = [[0.,0.,0.],[0.,0.,0.],[0.,0.,0.]]
 zeros1 = [0.,0.,0.]
 identity3 = [[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]]
+def vect_length(vect1, vect2):
+    """
+    Gives the distance between two vectors
+    """
+    dvect = vect_sub(vect1, vect2)
+    dprod = dot(dvect, dvect)
+    return math.sqrt(dprod)
+
 def vect_add(vect1, vect2):
     """
     Adds elements of each vector together.

@@ -14,11 +14,13 @@ import re
 import numpy as np
 import copy
 import os
+import io
 import itertools
+import ConfigParser
+from config import Options
 from operations import *
 from numpy import array
-from elements import WEIGHT, ATOMIC_NUMBER
-import sample
+from elements import WEIGHT
 from bookkeeping import Log, Time
 from random import random, uniform, randrange, choice
 from datetime import date
@@ -825,75 +827,79 @@ class SBU(object):
     """
     """
 
-    def __init__(self, pdbfile=None, ismetal=None):
+    def __init__(self, data):
         self.vectors = []
         self.points = []
+
         # each connective bond is assigned a type.  If bonds are 
         # different they should have different types.
-        self.symmetrytype = []
-        # angles for possible rotations
-        self.connectangles = []
         self.name = None
         # index is used to keep track of the SBU's order when building
-        # new structures.  This should be found in the pdb file.
+        # new structures.
         self.index = 0
         # internal index to keep track of the bonding rules
         self.type = None
-        self.atomlabel = []
-        self.coordinates = []
-        if pdbfile is not None:
-            self.from_pdb(pdbfile)
+        self.atom_label = {}
+        self.coordinates = {}
         # store history of functional group replacements
         self.fnlgrpchoice = []
-        self.mass = 0. 
-        # TODO(pboyd): change self.connect to something else
-        # this is just the intramolecular connectivity matrix
-        self.connect = []
-        self.nbonds = [] 
-        self.bonding = []
-        self.unsat = []
+        self.mass = 0.
+        # each bond is assigned a symmetry type.
+        self.connect_sym = {}
         # vectors of connection points for SBU
-        self.connect_vector = []
+        self.connect_vector = {}
         # terminal points of connecting vectors for SBU
-        self.connectpoints = []
+        self.connect_points = {}
+        # alignment vectors used to align SBUs once bonded together
+        self.connect_align = {}
+        # angles for possible SBU - SBU bond rotation
+        self.connect_angles = {}
         # index of the atoms which form connecting bonds with
         # other SBUs
         self.bondingatoms = []
-        # angle vectors used to align SBUs once bonded together
-        self.anglevect = []
         # store special bonding indices here
         self.special_bond = []
 
-        # Default metal
-        if ismetal is not None:
-            self.ismetal = ismetal
-        else:
-            self.ismetal = True
+        self.init_arrays(data)
 
-        # populate arrays
-        # structcalc is a tuple of important connectivity information
-        # of the linker
-        structcalc = coord_matrix(self.atomlabel, self.coordinates)
-        self.connect = structcalc[0]
-        self.bonding = structcalc[1]
-        self.nbonds = structcalc[2]
+    def init_arrays(self, data):
+        """ Converts data stream to arrays. """
+        config = ConfigParser.ConfigParser()
+        config.readfp(io.BytesIO(data))
+        sections = config.sections()
+        # TODO(pboyd); test for population of default sections
+        for section in sections:
+            for name in config.options(section):
+                lines = io.BytesIO(config.get(section, name)).readlines()
+                # strip out blanks and newlines
+                if "properties" in section:
+                    if "name" in name:
+                        self.name = config.get(section, name)
+                    elif "metal" in name:
+                        self.metal = config.getboolean(section, name)
+                lines = [line.rstrip() for line in lines if line.rstrip()]
+                if "coordinates" in section:
+                    # append coordinate dictionary with coords converted to float
+                    [self.coordinates.setdefault(name, []).append(
+                        [float(elem) for elem in line.rstrip().split()[1:4]]) 
+                        for line in lines]
+                    # append atom label dictionary
+                    [self.atom_label.setdefault(name, []).append(
+                        line.rstrip().split()[0]) for line in lines]
+                if "connectivity" in section:
+                    [self.connect_sym.setdefault(name, []).append(
+                        int(line.rstrip().split()[0])) for line in lines]
+                    [self.connect_points.setdefault(name, []).append(
+                        [float(elem) for elem in line.rstrip().split()[1:4]])
+                        for line in lines]
+                    [self.connect_vector.setdefault(name, []).append(
+                        [float(elem) for elem in line.rstrip().split()[4:7]])
+                        for line in lines]
+                    [self.connect_align.setdefault(name, []).append(
+                        [float(elem) for elem in line.rstrip().split()[7:10]])
+                        for line in lines]
 
-        # calculate centre of mass      
-        self.COM = self.centre_of_mass()
-
-        # shift all coordinates back by the centre of mass
-        self.COM_shift()
-
-        # check unsaturated bonds for possible connect_vector
-        self.check_unsat()
-
-        # add linking points to the SBU.
-        # TODO(pboyd): add possible linking types
-        self.add_connect_vector()
-        # determine the number of H's in the SBU
-        self.hydrogens = [i for i in range(len(self.atomlabel)) if 
-                        self.atomlabel[i] == "H"]
-
+        print self.name, self.metal
     def choose_fnl_sites(self, fnlgrp):
         """Return an array of hydrogen sites to be replaced with
         functional groups"""
@@ -1035,43 +1041,26 @@ class SBU(object):
                     else:
                         self.connectangles.append(angles)
         pdbfile.close()
+        # populate arrays
+        # structcalc is a tuple of important connectivity information
+        # of the linker
+        structcalc = coord_matrix(self.atomlabel, self.coordinates)
+        self.connect = structcalc[0]
+        self.bonding = structcalc[1]
+        self.nbonds = structcalc[2]
 
-    def from_xsd(self, filename):
-        """
-        DEPRECIATED
-        Reads atom coordinates of an SBU from a Materials Studio .xsd
-        file.
-        """
-        filename = filename + ".xsd"
-        xsdfile = open(filename)
-        xsdlines = xsdfile.readlines()
-        xsdfile.close()
+        # calculate centre of mass      
+        self.COM = self.centre_of_mass()
 
-        for line in xsdlines:
-            line = line.strip()
-            line = re.split("[<>=\"]", line)
-            line = [x for x in line if x]
-            if line[0].strip().lower() == "atom3d id":
-                for index, entry in enumerate(line):
-                    if entry.strip().lower() == "name":
-                        self.atomlabel.append(line[index+1].strip())
-                    elif entry.strip().lower() == "xyz":
-                        coord = line[index+1].strip().split(",")
-                        self.coordinates.append([float(x) for x in coord])
+        # shift all coordinates back by the centre of mass
+        self.COM_shift()
 
-    def check_unsat(self):
-        """
-        checking for unsaturated bonds
-        """
-        unsat = []
-        # need to improve robustness of this code
-        for i in range(len(self.nbonds)):
-            if ((self.nbonds[i] <= 2)and(self.atomlabel[i] != "H")and
-                (self.atomlabel[i] != "X")and(self.atomlabel[i] != "Y")
-                and(self.atomlabel[i]!="Z")):
-                unsat.append(i)
-        self.unsat = unsat
-
+        # add linking points to the SBU.
+        # TODO(pboyd): add possible linking types
+        self.add_connect_vector()
+        # determine the number of H's in the SBU
+        self.hydrogens = [i for i in range(len(self.atomlabel)) if 
+                        self.atomlabel[i] == "H"]
     def add_connect_vector(self):
         """
         checks for certain atoms and adds topological connecting
@@ -1136,22 +1125,6 @@ class SBU(object):
         self.connect = struct[0]
         self.bonding = struct[1]
         self.nbonds = struct[2]
-
-    def carboxylate_test(self, atom):
-        """Simple test for a carboxylate group"""
-        oxcount = 0
-        bondvector =[]
-
-        for iatm in self.bonding[atom]:
-            if (self.atomlabel[iatm] == "O") and (iatm in self.unsat):
-                oxcount += 1
-                bondvector.append(self.coordinates[iatm])
-
-        if oxcount == 2:
-            return True, bondvector
-        else:
-            return False, None
-
 
     def centre_of_mass(self):
         """
@@ -2193,64 +2166,61 @@ class Database(object):
     """
     class to read in files and interpret them
     """
-    def __init__(self):
-        #TODO(pboyd): add flags for directories for the metal and
-        # organic linkers.
-        self.organic = []
-        self.metals = []
-        self.fnlgrps = []
-        # accepted filetypes. Add to this later?
-        # !!! make sure they are 3-letter file extensions!!!
-        self.accepted_file = [".pdb", ".xsd"]
-        # defaults for the organic and metal directories.
-        self.org_dir = "./organic"
-        self.met_dir = "./metals"
-        self.fnl_dir = "./functional_groups"
-    def build_databases(self):
-        """populate databases with SBUs"""
-        # FIXME(pboyd): Calling a class (SBU) within a class (Database) 
-        # from another class (Generate) doesn't work. 
-        # organic
-        database = self.scan(self.org_dir)
-        for i in database:
-            file = self.org_dir + '/' + i
-            if i[-4:] == ".pdb":
-                #self.organic.append(SBU("label", pdbfile=file[:-4], 
-                #                        ismetal=False))
-                self.organic.append(file[:-4])
-            elif i[-4:] == ".xsd":
-                #self.organic.append(SBU("label", xsdfile=file[:-4],
-                #                        ismetal=False))
-                self.organic.append(file[:-4])
-        # metals
-        database = self.scan(self.met_dir)
-        for i in database:
-            file = self.met_dir + '/' + i
-            if i[-4:] == ".pdb":
-                #self.metals.append(SBU("label", pdbfile=file[:-4]))
-                self.metals.append(file[:-4])
-            elif i[-4:] == ".xsd":
-                #self.metals.append(SBU("label", xsdfile=file[:-4])) 
-                self.metals.append(file[:-4])
-        # functional groups
-        database = self.scan(self.fnl_dir)
-        for i in database:
-            file = self.fnl_dir + '/' + i
-            if i[-4:] == ".pdb":
-                self.fnlgrps.append(file[:-4])
-            elif i[-4:] == ".xsd":
-                self.fnlgrps.append(file[:-4])
+    def __init__(self, file, options):
+        self.options = options
+        self.store = []
+        self.readfile(file)
 
-    def scan(self, dir):
-        """Scans the directories for SBUs, returns list of SBU files."""
-        dir = dir.strip(".")
-        cwd = os.getcwd()
-        sbufiles = subprocess.Popen(["ls", cwd + dir], shell=False, 
-                stdout=subprocess.PIPE).communicate()[0].split("\n")
-        # Note: this only works for file extensions with three letters.
-        # any other types (1, 2, 4 etc ...) will not be included properly.
-        sbufiles = [i for i in sbufiles if i and i[-4:] in self.accepted_file]
-        return sbufiles
+    def readfile(self, filename):
+        """populate databases with SBUs"""
+        file = open(filename, "r")
+        counter = 0
+        headread = False; bodyread = False
+        header = "" ; body = ""
+        # initial reading
+        # TODO(pboyd):Check for inappropriate inputs (no default sections, 
+        # no names for subsections, duplicate names etc.)
+        for line in file:
+            if "[properties]" in line:
+                headread = True
+            if "[start]" in line:
+                bodyread = True
+                body = body + line
+                headread = False
+                counter += 1
+            if headread:
+                header = header + line
+            if bodyread:
+                body = body + line
+        file.close()
+        info("There are %i building units in the file: %s"
+                %(counter, filename))
+
+        #TODO(pboyd): include some index call to build a single
+        #structure of choice SBUs
+        array = []
+        body = io.BytesIO(body)
+        for sbu in range(counter):
+            sbuchunk = self.parselines(body)
+            sbuchunk = header + sbuchunk
+            array.append(SBU(sbuchunk))
+
+    def parselines(self, file):
+        """
+        Takes a chunk of the file between the lines [start] and [end]
+        """
+        chunk = "" 
+        # ensure that the first line is [start]
+        if "[start]" in file.readline():
+            burn = file.readline()
+            endread = False
+            while not endread:
+                line = file.readline()
+                if "[end]" in line:
+                    endread = True
+                else:
+                    chunk = chunk + line
+        return chunk
 
 def vectorshift(shift_vector, root_vector):
     """Shift a vector to within the bounds of a root vector"""
@@ -2561,15 +2531,6 @@ def write_pdb(label, atoms, coords, acell):
     pdbfile.writelines(lines)
     pdbfile.close()
 
-def flatten(seq):
-    """ flattens a nested list to a 1d list """
-    for x in seq:
-        if type(x) is list:
-            for y in flatten(x):
-                yield y
-        else:
-            yield x
-
 def write_xyz(label, atoms, coords, cell, origin=None):
     if origin is not None:
         origin = origin
@@ -2591,8 +2552,10 @@ def main():
     Log()
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
-    genstruct = Generate()
-    genstruct.database_generation()
+    options = Options()
+    sbutest = Database("metals/metals", options)
+    #genstruct = Generate()
+    #genstruct.database_generation()
     #genstruct.bondrule_generation()
 if __name__ == '__main__':
     main()
