@@ -862,44 +862,66 @@ class SBU(object):
 
         self.init_arrays(data)
 
+        print self.connect_angles
     def init_arrays(self, data):
         """ Converts data stream to arrays. """
         config = ConfigParser.ConfigParser()
         config.readfp(io.BytesIO(data))
         sections = config.sections()
-        # TODO(pboyd); test for population of default sections
-        for section in sections:
+        # TODO(pboyd): test for population of default sections
+        # TODO(pboyd): this block should call some default values
+        # instead of if/else statements.
+        if config.has_section("properties"):
+            if config.has_option("properties", "name"):
+                self.name = config.get("properties", "name")
+            else:
+                self.name = None
+            if config.has_option("properties", "metal"):
+                self.metal = config.get("properties", "metal")
+            else:
+                # Default False for metal
+                self.metal = False
+
+        if config.has_section("coordinates"):
+            section = "coordinates"
             for name in config.options(section):
                 lines = io.BytesIO(config.get(section, name)).readlines()
-                # strip out blanks and newlines
-                if "properties" in section:
-                    if "name" in name:
-                        self.name = config.get(section, name)
-                    elif "metal" in name:
-                        self.metal = config.getboolean(section, name)
                 lines = [line.rstrip() for line in lines if line.rstrip()]
-                if "coordinates" in section:
-                    # append coordinate dictionary with coords converted to float
-                    [self.coordinates.setdefault(name, []).append(
-                        [float(elem) for elem in line.rstrip().split()[1:4]]) 
-                        for line in lines]
-                    # append atom label dictionary
-                    [self.atom_label.setdefault(name, []).append(
-                        line.rstrip().split()[0]) for line in lines]
-                if "connectivity" in section:
-                    [self.connect_sym.setdefault(name, []).append(
-                        int(line.rstrip().split()[0])) for line in lines]
-                    [self.connect_points.setdefault(name, []).append(
-                        [float(elem) for elem in line.rstrip().split()[1:4]])
-                        for line in lines]
-                    [self.connect_vector.setdefault(name, []).append(
-                        [float(elem) for elem in line.rstrip().split()[4:7]])
-                        for line in lines]
-                    [self.connect_align.setdefault(name, []).append(
-                        [float(elem) for elem in line.rstrip().split()[7:10]])
-                        for line in lines]
+                # append atom label dictionary
+                [self.atom_label.setdefault(name, []).append(
+                    line.rstrip().split()[0]) for line in lines]
+                [self.coordinates.setdefault(name, []).append(
+                    [float(elem) for elem in line.rstrip().split()[1:4]]) 
+                    for line in lines]
+            
+        if config.has_section("connectivity"):
+            section = "connectivity"
+            for name in config.options(section):
+                lines = io.BytesIO(config.get(section, name)).readlines()
+                lines = [line.rstrip() for line in lines if line.rstrip()]
+                [self.connect_sym.setdefault(name, []).append(
+                    int(line.rstrip().split()[0])) for line in lines]
+                [self.connect_points.setdefault(name, []).append(
+                    [float(elem) for elem in line.rstrip().split()[1:4]])
+                    for line in lines]
+                [self.connect_vector.setdefault(name, []).append(
+                    [float(elem) for elem in line.rstrip().split()[4:7]])
+                    for line in lines]
+                [self.connect_align.setdefault(name, []).append(
+                    [float(elem) for elem in line.rstrip().split()[7:10]])
+                    for line in lines]
 
-        print self.name, self.metal
+        if config.has_section("angles"):
+            section = "angles"
+            for name in config.options(section):
+                lines = io.BytesIO(config.get(section, name)).readlines()
+                lines = [line.rstrip() for line in lines if line.rstrip()]
+                [self.connect_angles.setdefault(name, []).append(
+                    [float(elem) for elem in line.rstrip().split()])
+                    for line in lines]
+        else:
+            self.connect_angles.setdefault("standard", []).append(0.0)    
+
     def choose_fnl_sites(self, fnlgrp):
         """Return an array of hydrogen sites to be replaced with
         functional groups"""
@@ -2553,7 +2575,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("metals/metals", options)
+    sbutest = Database("database", options)
     #genstruct = Generate()
     #genstruct.database_generation()
     #genstruct.bondrule_generation()
