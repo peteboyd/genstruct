@@ -9,6 +9,7 @@ numpy from genstruct.
 
 zeros3 = [[0.,0.,0.],[0.,0.,0.],[0.,0.,0.]]
 zeros1 = [0.,0.,0.]
+zeros6 = [0.,0.,0.,0.,0.,0.]
 identity3 = [[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]]
 def vect_length(vect1, vect2):
     """
