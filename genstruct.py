@@ -102,13 +102,17 @@ class Generate(object):
         build = self.filter(build)
         info("Genstruct will try %i combinations."%(len(build)))
         for idx, subset in enumerate(build):
-            #self.unique_bondtypes([i, j])
             #check for possible MOF topologies
             buildlist = self.determine_topology(subset)
             for name in buildlist:
                 basestructure = Structure(
                         [self.database[i] for i in subset],name)
+                self.unique_bondtypes(basestructure)
+                #TODO(pboyd): unique bondtypes established, now must
+                # change valid_string to sample these bond types properly
+                # (one per SBU) also remove redundant testing.
                 self.exhaustive_generation(basestructure)
+
 
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
@@ -196,49 +200,126 @@ class Generate(object):
                 # stop the timer
                 return True
 
-    def unique_bondtypes(self, dataset):
+    def unique_bondtypes(self, structure):
         """
         Determine all the unique possible bonding which can occur
         with the dataset
         """
         self.bondtypes={}
+        dataset = structure.sbu_array
         datalength = len(dataset)
         # outter loops: sbus
         bondtype = 0
-        for idx1 in range(datalength):
-            for idx2 in range(idx1, datalength):
-                sbut1 = dataset[idx1]
-                sbut2 = dataset[idx2]
-                # middle loops: their bond types
-                for bdx1, bondt1 in enumerate(sbut1.symmetrytype):
-                    for bdx2, bondt2 in enumerate(sbut2.symmetrytype):
-                        if self.bondtype_valid(idx1, idx2, bdx1, bdx2, dataset):
-                            # inner loops: their angles
-                            for iang1, angt1 in enumerate(sbut1.connectangles[bdx1]):
-                                for iang2, angt2 in enumerate(sbut2.connectangles[bdx2]):
-                                    # check if the bond type already exists
-                                    arrayt = [[idx1, bondt1, iang1],
-                                        [idx2, bondt2, iang2]]
-                                    if not self.bondtype_exists(arrayt):
-                                        bondtype += 1
-                                        self.bondtypes[bondtype] = [
-                                            [idx1, bondt1, iang1],
-                                            [idx2, bondt2, iang2]]
+        sbu_pairs = list(
+                itertools.combinations_with_replacement(
+                    range(datalength), 2))
+        bonds = []
+        for pair in sbu_pairs:
+            bonds = self.possible_bonds(pair, structure)
+        return bonds
+        #    for bond in bonds:
+        #for idx1 in range(datalength):
+        #    for idx2 in range(idx1, datalength):
+        #        sbut1 = dataset[idx1]
+        #        sbut2 = dataset[idx2]
+        #        # middle loops: their bond types
+        #        for bdx1, bondt1 in enumerate(sbut1.symmetrytype):
+        #            for bdx2, bondt2 in enumerate(sbut2.symmetrytype):
+        #                if self.bondtype_valid(idx1, idx2, bdx1, bdx2, dataset):
+        #                    # inner loops: their angles
+        #                    for iang1, angt1 in enumerate(sbut1.connectangles[bdx1]):
+        #                        for iang2, angt2 in enumerate(sbut2.connectangles[bdx2]):
+        #                            # check if the bond type already exists
+        #                            arrayt = [[idx1, bondt1, iang1],
+        #                                [idx2, bondt2, iang2]]
+        #                            if not self.bondtype_exists(arrayt):
+        #                                bondtype += 1
+        #                                self.bondtypes[bondtype] = [
+        #                                    [idx1, bondt1, iang1],
+        #                                    [idx2, bondt2, iang2]]
 
-    def bondtype_valid(self, idx1, idx2, bnd1, bnd2, dataset):
-        """Checks for bond type validity."""
-        sbu1 = dataset[idx1]
-        sbu2 = dataset[idx2]
+    def possible_bonds(self, sbu_inds, structure):
+        """ determine all pairs of bonds between two SBUs """
+        sbus = [structure.sbu_array[sbu] for sbu in sbu_inds]
+        name = structure.name
+        bonding = []
 
-        if (bnd1 in sbu1.special_bond) and (bnd2 in sbu2.special_bond):
-            if sbu1.symmetrytype[bnd1] != sbu2.symmetrytype[bnd2]:
-                return True
-        elif (bnd1 not in sbu1.special_bond) and (bnd2 not in 
-                sbu2.special_bond):
-            if not (sbu1.metal == sbu2.metal):
-                return True
-        return False
+        bonds = [[],[]]; flag_name = [[],[]]; flag_sym = [[],[]]
 
+        standard_bonds = {}
+        # add standard bonds associated with "name"
+        for ind, sbu in enumerate(sbus):
+            nbonds = len(sbu.connect_points[name])
+            bonds[ind] += range(nbonds)
+            flag_name[ind] += [name]*nbonds
+            flag_sym[ind] += [i for i in sbu.connect_sym[name]]
+            if name == "pcu":
+                if sbu.connect_points.has_key("metallic"):
+                    nbonds = len(sbu.connect_points["metallic"])
+                    bonds[ind] += range(len(bonds[ind]), 
+                                    len(bonds[ind])+nbonds)
+                    flag_name[ind] += ["metallic"]*nbonds
+                    flag_sym[ind] += [i for i in 
+                            sbu.connect_sym["metallic"]]
+
+            if sbu.metal and sbu.connect_points.has_key("intermetal"):
+                nbonds = len(sbu.connect_points["intermetal"])
+                bonds[ind] += range(nbonds)
+                flag_name[ind] += ["intermetal"]*nbonds
+                flag_sym[ind] += [i for i in 
+                            sbu.connect_sym["intermetal"]]
+        
+        # generate list of valid bonds
+        complete_set = [(i, j) for i in bonds[0] for j in bonds[1]]
+        for bond in complete_set:
+            # determine if this bond can be formed
+            if sbus[0].metal == sbus[1].metal:
+                if flag_name[0][bond[0]] == "intermetal" and \
+                    flag_name[1][bond[1]] == "intermetal":
+                    if flag_sym[0][bond[0]] != flag_sym[1][bond[1]]:
+                        # add symmetry type
+                        angle = 0
+                        key = ("intermetal", sbus[0].index, 
+                                flag_sym[0][bond[0]], sbus[1].index, 
+                                flag_sym[1][bond[1]], angle)
+                        value = ("intermetal", sbus[0].index, bond[0],
+                                 sbus[1].index, bond[1])
+
+                        self.bondtypes.setdefault(key, [])
+                        if value not in self.bondtypes[key]:
+                            self.bondtypes[key].append(value)
+                        
+            else:
+                if flag_name[0][bond[0]] == flag_name[1][bond[1]]:
+                    # range over all angles
+                    for angle in range(len(structure.connect_angles)):
+                        key = (flag_name[0][bond[0]], sbus[0].index, 
+                                flag_sym[0][bond[0]], sbus[1].index, 
+                                flag_sym[1][bond[1]], angle)
+                        # Note: for the organic linker, the "metallic"
+                        # bonds replace the regular bonds, they do not
+                        # add to the total bond count as they do for
+                        # the metals, so the value must be adjusted 
+                        # to accomodate this.
+                        bval1 = bond[0]
+                        bval2 = bond[1]
+                        if flag_name[0][bond[0]] == "metallic":
+                            # note the reference value here assumes
+                            # no difference between the number of bonds
+                            # for the "metallic" and normal bonding
+                            if not sbus[0].metal:
+                                bval1 = bond[0] % len(
+                                        sbus[0].connect_points[name])
+                            elif not sbus[1].metal:
+                                bval2 = bond[1] % len(
+                                        sbus[1].connect_points[name])
+                        value = (flag_name[0][bond[0]], sbus[0].index, 
+                                 bval1, sbus[1].index, bval2, angle)
+                        self.bondtypes.setdefault(key, [])
+                        if value not in self.bondtypes[key]:
+                            self.bondtypes[key].append(value)
+                
+        return bonding
 
     def bondtype_exists(self, arrayt):
         """
@@ -332,7 +413,6 @@ class Generate(object):
         connectivity to call during the building process.
         """
         self.moflib = []
-        self.bondhist = []
         self.generate_stringset(structure)
         self.moflib.append(structure)
         # Start the string off at "0-0-0-0-0"
@@ -341,16 +421,25 @@ class Generate(object):
         while not done:
             #apply the string
             for struct in self.moflib:
-                if self.valid_string(self.strings[iterstring], struct):
+                string = self.strings[iterstring]
+                if self.valid_string(string, struct):
                     copystruct = copy.deepcopy(struct)
-                    copystruct.bonding_check()
-                    copystruct.apply_string(stringset[string])
-                    if copystruct.overlap():
+                    sbu = len(copystruct.mof) 
+                    copystruct.apply_string(string)
+                    if copystruct.overlap_allcheck():
                         info("overlap")
                     else:
-                        copystruct.join_sbus()
+                        bondtype = self.determine_bondtype(
+                                string, copystruct)
+                        copystruct.sbu_check(sbu)
+                        copystruct.bondhist.append(bondtype)
+                        self.bondhist.append(copystruct.bondhist)
+                        copystruct.stringhist.append(string)
+                        self.moflib.append(copystruct)
+                        
                     if copystruct.saturated() and copystruct.complete_box():
                         done = True
+
             #if structure is generated:
             #    done = True
             #iterate the string
@@ -502,39 +591,66 @@ class Generate(object):
             if idx[ind] > bound:
                 return False
 
+        # check if the bonds are already occupied
+        if struct.connectivity[idx[0]][idx[1]] is not None: 
+            return False
+
         # specific bond tests
-        if idx[3] >= len(sbu2.connect_points[name]):
-            if inter_metal_test[1]:
-                type2 = "intermetal"
-            elif pcu_metal_test[1]:
-                type2 = "metallic"
-        else:
-            type2 = name
-        id2 = idx[3] % (len(sbu2.connect_points[name])-1)
-        bond_types = [struct.vectorflag[idx[0]][idx[1]], type2]
 
-        # check if bond_types are the same
-        if len(set(bond_types)) <= 1:
-            # case1: metallic - metallic bond
-            if "metallic" in set(bond_types) or (
-                    "intermetal" in set(bond_types)):
-                if sbu1.metal == sbu2.metal:
-                    return False
-            # case2: intermetallic bonds
-            if "intermetal" in set(bond_types):
-                if not sbu1.metal or not sbu2.metal:
-                    return False
-                elif sbu1.connect_sym["intermetal"][idx[1]] == \
-                        sbu2.connect_sym["intermetal"][id2]:
-                    return False
+        # if the bond value is not in self.bondtype then it is not 
+        # allowed.
+        bond = self.determine_bondtype(string, struct)
+       
+        if not bond:
+            return False
 
-        #bondtype = self.determine_bondtype(string, struct, database)
-        ## check to see if this type of bond has already been made
-        ## in a structure.
-        #structhist = struct.bondhist[:]
-        #structhist.append(bondtype)
-        #if structhist in self.bondhist:
-        #    return False 
+        # check if the bond with the same symmetry has been made
+        structhist = struct.bondhist[:]
+        structhist.append(bond)
+        if structhist in self.bondhist:
+            return False
+
+        #TODO(pboyd): make sure that all sbu's are sampled in the 
+        # string set (otherwise it will just generate the first one
+        # again)
+
+
+        #if idx[3] >= len(sbu2.connect_points[name]):
+        #    if inter_metal_test[1]:
+        #        type2 = "intermetal"
+        #    elif pcu_metal_test[1]:
+        #        type2 = "metallic"
+        #else:
+        #    type2 = name
+        #id2 = idx[3] % (len(sbu2.connect_points[name])-1)
+        #bond_types = [struct.vectorflag[idx[0]][idx[1]], type2]
+        ## check if bond_types are the same
+        #if len(set(bond_types)) <= 1:
+        #    # case1: metallic - metallic bond
+        #    if "metallic" in set(bond_types):
+        #        if sbu1.metal == sbu2.metal:
+        #            return False
+        #    # case2: intermetallic bonds
+        #    if "intermetal" in set(bond_types):
+        #        if not sbu1.metal or not sbu2.metal:
+        #            return False
+        #        elif sbu1.connect_sym["intermetal"][idx[1]] == \
+        #                sbu2.connect_sym["intermetal"][id2]:
+        #            return False
+        #    else:
+        #        if sbu1.metal == sbu2.metal:
+        #            return False
+        ## if the two bonds are not of the same bond type return False
+        ## for now. May lighten the restriction in the future.
+        #else:
+        #    return False
+        ##bondtype = self.determine_bondtype(string, struct, database)
+        ### check to see if this type of bond has already been made
+        ### in a structure.
+        ##structhist = struct.bondhist[:]
+        ##structhist.append(bondtype)
+        ##if structhist in self.bondhist:
+        ##    return False 
         return True 
 
     def iterate_string(self, string, maxstring):
@@ -577,24 +693,31 @@ class Generate(object):
         return([self.nsbumax, maxbond, maxsbu, maxbond, maxangle])
 
 
-    def determine_bondtype(self, string, struct, dataset):
+    def determine_bondtype(self, string, struct):
         """
         Determine the type of bond formed using the string and the
         structure.
         """
-        ints = [int(i) for i in string.split("-")]
-        sbutype1 = struct.mof[ints[0]].index
-        sbutype2 = ints[2]
-        bondtype1 = struct.mof[ints[0]].symmetrytype[ints[1]]
-        bondtype2 = dataset[ints[2]].symmetrytype[ints[3]]
-        angletype = ints[4]
-        if struct.mof[ints[0]].metal:
-            bonding = [[sbutype1, bondtype1, 0],[sbutype2, bondtype2, angletype]]
-        else:
-            bonding = [[sbutype1, bondtype1, angletype],[sbutype2, bondtype2, 0]]
+        idx = [int(i) for i in string.split("-")]
+        sbutype1 = struct.mof[idx[0]].index
+        sbutype2 = struct.sbu_array[idx[2]].index
+        bond1 = idx[1]
+        bond2 = idx[2]
+        angletype = idx[4]
+        
+        # determine the type of bonding taking place.  Ie what is the
+        # type of bond joining the two SBUs as determined by the SBU
+        # already placed.
+        bondname = struct.vectorflag[idx[0]][idx[1]]
+        # since index, bondtype is unique, if the bond exists it is
+        # in one of the following two forms in the dictionary
+        type1 = (bondname, sbutype1, bond1, sbutype2, bond2, 
+                 angletype)
+        type2 = (bondname, sbutype2, bond2, sbutype1, bond1, 
+                 angletype)
 
-        bonding.sort()
-        bondtype = [k for k, v in self.bondtypes.iteritems() if v == bonding]
+        bondtype = [k for k, v in self.bondtypes.iteritems() 
+                    if type1 in v or type2 in v]
         # if the bondtype doesn't match then most likely it's a metal - metal or 
         # organic - organic bond.
         if len(bondtype) == 0:
@@ -938,10 +1061,10 @@ class SBU(object):
         """
         top = zeros1
         bottom = 0.
-        for i in range(len(self.atomlabel)):
-            massvect = scalar_mult(WEIGHT[self.atomlabel[i]], self.coordinates[i])
+        for i in range(len(self.atom_label)):
+            massvect = scalar_mult(WEIGHT[self.atom_label[i]], self.coordinates[i])
             top = vect_add(top, massvect)
-            bottom += WEIGHT[self.atomlabel[i]]
+            bottom += WEIGHT[self.atom_label[i]]
         self.mass = bottom
         return scalar_div(bottom, top)
 
@@ -1049,7 +1172,10 @@ class Structure(object):
         # structure.
         self.coordinates = []
         self.atoms = []
-        self.vectors = []
+        self.connect_points = []
+        self.connect_align = []
+        self.connect_vector = []
+        self.connect_sym = []
         # list to keep track of bonding between SBU's
         self.connectivity = []
         self.vectorflag = []
@@ -1081,29 +1207,14 @@ class Structure(object):
         self.seed(name, 0)
 
     def store_angles(self):
-        angle = []
         for sbu in self.sbu_array:
-            angles = [ang for ang in sbu.connect_angles.itervalues()]
-            self.connect_angles = self.connect_angles + angles
+            self.connect_angles += list(sbu.connect_angles.itervalues())[0]
+        self.connect_angles = list(set(self.connect_angles))
 
     def seed(self, name, ind):
         """Seed the structure with the identity of the building topology"""
         self.mof.append(self.sbu_array[ind])
-        nconnect = len(self.sbu_array[ind].connect_vector[name])
-        self.connectivity.append([None]*nconnect)
-        self.vectorflag.append([name]*nconnect)
-        # test for addition of metallic coordination bonds
-        if name == "pcu" and self.sbu_array[ind].metal:
-            if self.sbu_array[ind].connect_vector.has_key("metallic"):
-                nconnect = len(self.sbu_array[ind].connect_vector["metallic"])
-                self.connectivity[0] += [None]*nconnect
-                self.vectorflag[0] += ["metallic"]*nconnect
-        # test for metal - metal bonds
-        if self.sbu_array[ind].metal and \
-            self.sbu_array[ind].connect_vector.has_key("intermetal"):
-            nconnect = len(self.sbu_array[ind].connect_vector["intermetal"])
-            self.connectivity[0] += [None]*nconnect
-            self.vectorflag[0] += ["intermetal"]*nconnect
+        self.import_sbu(ind, name)
 
     def reset(self):
         sbuarray = self.sbu_array
@@ -1143,7 +1254,6 @@ class Structure(object):
         # if sbu1 is a metal, the angle should be from the organic
         # index (sbu2)
         iangle = int(strlist[4])
-
         # add sbu1 to sbu2
         self.add_new_sbu(sbu1, bond1, sbutype2, bond2, iangle)
 
@@ -1161,7 +1271,7 @@ class Structure(object):
             return True
         return False
 
-    def sbu_check(self, sbu_ind1, tol=None):
+    def sbu_check(self, sbu, tol=None):
         """
         Checks an SBU for 
         1. bonding locally,
@@ -1177,122 +1287,130 @@ class Structure(object):
             tol = tol
         else:
             tol = 1 
-        # TODO(pboyd):check for alignment (angle_vect + angles)??
-
-        sbu1 = self.mof[sbu_ind1]
-        # local bonding tolerance is low
-        for sbuind, sbu in enumerate(self.mof):
-            for bondind, bond in enumerate(sbu.connectpoints):
-                for bondind1, bond1 in enumerate(
-                        sbu1.connectpoints):
-                    test = self.connectivity[sbu_ind1][bondind1] is None \
-                            and self.connectivity[sbuind][bondind] is None
-                    if sbuind != sbu_ind1 and test:
-                        point1 = self.apply_pbc(bond1)
-                        point2 = self.apply_pbc(bond)
-                        if length(vect_sub(point1,point2)) <= tol:
-                            info("Local bond found between " +
-                                "SBU %i, bond %i, "%(sbu_ind1, bondind1)+
-                                "and SBU %i, bond %i."%(sbuind, bondind)+
-                                " Found with the application of pbc's.")
-                            self.join_sbus(sbu_ind1, bondind1, sbuind, 
-                                            bondind, True)
         # return dictionary of anti-parallel, unsaturated bonds within MOF
         # note, may be a problem if bonds are close but not exactly
         # anti-parallel
-        bonds = self.antiparallel_bonds(sbu_ind1)
+        bonds = self.antiparallel_bonds(sbu)
         # generate vectors for all the eligible bonds 
-        bondvects = self.gen_bond_vectors(sbu_ind1, bonds)
-
+        bondvects = self.gen_bond_vectors(sbu, bonds)
         bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
-        # !!!problems if connection site forms multiple possible bonds!!!
-        # check to see if any bonds are formed
+
         if not bonds:
-            info("No new bonds formed with SBU %i"%(sbu_ind1))
+            info("No new bonds formed with SBU %i"%(sbu))
             return
 
         for bond in bondlist:
-            if length(bondvects[bond]) <= tol:
+            adjusted_vect = self.min_img(bondvects[bond])
+            if length(adjusted_vect) <= tol:
                 # bonds are close
-                info("Local bond found between "+
-                        "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
-                        "and SBU %i, bond %i."%(bond[1][0],bond[1][1]))
-                self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
-                               bond[1][1], True)
                 try:
                     del bonds[bond[0]]
+                    info("Local bond found between "+
+                        "SBU %i, bond %i, "%(sbu, bond[0])+
+                        "and SBU %i, bond %i."%(bond[1][0],bond[1][1]))
+                    self.join_sbus(sbu, bond[0], bond[1][0], 
+                               bond[1][1], True)
                 except:
                     info("Tried to bond SBU %i bond %i to SBU %i "
-                         %(sbu_ind1, bond[0], bond[1][0]) +
+                         %(sbu, bond[0], bond[1][0]) +
                          "bond %i, but it has already been bonded."
                          %(bond[1][1]))
-
-        bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
-        # check for possible periodic boundary
-        for bond in bondlist:
-            # test to see if the two sbu's can be joined
-            if self.periodic_vector(sbu_ind1, bond, bondvects[bond]):
-                if self.connectivity[sbu_ind1][bond[0]] is None and \
-                        self.connectivity[bond[1][0]][bond[1][1]] is \
-                        None and self.pbcindex < 2:
+            elif self.periodic_vector(sbu, bond, bondvects[bond]):
+                try:
+                    del bonds[bond[0]]
                     info("New periodic boundary formed between "+
-                    "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
-                    "and SBU %i, bond %i "%(bond[1][0],bond[1][1])+
-                    " with the vector (%f, %f, %f)."%(tuple(bondvects[bond])))
-                    self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
+                        "SBU %i, bond %i, "%(sbu, bond[0])+
+                        "and SBU %i, bond %i "%(bond[1][0],bond[1][1])+
+                        " with the vector (%f, %f, %f)."%(
+                        tuple(bondvects[bond])))
+                    self.join_sbus(sbu, bond[0], bond[1][0], 
                               bond[1][1], True)
                     self.add_vector(bondvects[bond])
                     self.origins[self.pbcindex] = \
-                        self.mof[sbu_ind1].connectpoints[bond[0]][:]
-                    try:
-                        del bonds[bond[0]]
-                    except:
-                        info("Tried to bond SBU %i bond %i to SBU %i "
-                         %(sbu_ind1, bond[0], bond[1][0]) +
+                            self.connect_points[sbu][bond[0]][:]
+                except:
+                    info("Tried to bond SBU %i bond %i to SBU %i "
+                         %(sbu, bond[0], bond[1][0]) +
                          "bond %i, but it has already been bonded."
                          %(bond[1][1]))
 
-        bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
+    def valid_connect(self, sbu1, bond1, sbu2, bond2):
+        """
+        Determine if the two SBU's can be joined together to form
+        a bond
+        """
 
-        # check for "local" bonds via periodic boundaries
-        for bond in bondlist:
-            if self.connectivity[sbu_ind1][bond[0]] is None and \
-               self.connectivity[bond[1][0]][bond[1][1]] is None:
-                pbc_shifted = self.apply_pbc(bondvects[bond])
-                if length(pbc_shifted) <= tol:
-                    info("Local bond found between " +
-                    "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
-                    "and SBU %i, bond %i."%(bond[1][0],bond[1][1])+
-                    " Found with the application of pbc's.")
-                    self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
-                              bond[1][1], True)
-                    try:
-                        del bonds[bond[0]]
-                    except:
-                        info("Tried to bond SBU %i bond %i to SBU %i "
-                         %(sbu_ind1, bond[0], bond[1][0]) +
-                         "bond %i, but it has already been bonded."
-                         %(bond[1][1]))
+        sbu1c = self.mof[sbu1]
+        sbu2c = self.mof[sbu2]
 
-        # announce connections which did not form bonds
-        bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
-        if bondlist is not None:
-            for bond in bondlist:
-                pbc_shifted = self.apply_pbc(bondvects[bond])
-                if self.remote_attach_sbus(bondvects[bond]):
-                #if self.remote_attach_sbus(pbc_shifted):
-                    info("Remote bond found between " +
-                        "SBU %i, bond %i, "%(sbu_ind1, bond[0])+
-                        "and SBU %i, bond %i."%(bond[1][0],bond[1][1])+
-                        " Found between existing pbc's.")
-                    self.join_sbus(sbu_ind1, bond[0], bond[1][0], 
-                              bond[1][1], True)
-                else:
-                    info("Nothing was done between "+
-                        "SBU %i, bond %i, "%(sbu_ind1, bond[0]) +
-                        "and SBU %i, bond %i. "%(bond[1][0], bond[1][1])+
-                        "Even though they had parallel alignment.")
-                    info("(%f, %f, %f)"%(tuple(bondvects[bond])))
+        bondtype = set([self.vectorflag[sbu1][bond1], 
+                       self.vectorflag[sbu2][bond2]])
+        if len(bondtype) <= 1:
+            if "metallic" in bondtype:
+                if sbu1c.metal != sbu2c.metal:
+                    return True
+            elif "intermetal" in bondtype:
+                if sbu1c.metal and sbu2c.metal:
+                    if self.connect_sym[sbu1][bond1] != \
+                            self.connect_sym[sbu2][bond2]:
+                        return True
+            else:
+                # general case: make sure the indices are not the same
+                # and that it is a metal - organic link
+                test = (sbu1c.metal != sbu2c.metal) and (sbu1 != sbu2)
+                if test:
+                    return True
+        return False
+
+    def import_sbu(self, ind, name):
+        """
+        Import all relevant information from the SBU class to 
+        the Structure class arrays: 
+        self.coordinates
+        self.atoms
+        self.connect_points
+        self.connect_align
+        self.connect_vector
+        self.connect_sym
+        self.connectivity
+        self.vectorflag
+        """
+        # check for default or metallic names
+        size = len(self.connectivity)
+        if name == "metallic":
+            self.coordinates.append(self.sbu_array[ind].coordinates[name][:])
+            self.atoms.append(self.sbu_array[ind].atom_label[name][:])
+        else:
+            self.coordinates.append(self.sbu_array[ind].coordinates["default"][:])
+            self.atoms.append(self.sbu_array[ind].atom_label["default"][:])
+        nconnect = len(self.sbu_array[ind].connect_vector[name])
+        self.connectivity.append([None]*nconnect)
+        self.vectorflag.append([name]*nconnect)
+        self.connect_points.append(self.sbu_array[ind].connect_points[name][:])
+        self.connect_vector.append(self.sbu_array[ind].connect_vector[name][:])
+        self.connect_align.append(self.sbu_array[ind].connect_align[name][:])
+        self.connect_sym.append(self.sbu_array[ind].connect_sym[name][:])
+        # test for addition of metallic coordination bonds
+        if name == "pcu" and self.sbu_array[ind].metal:
+            if self.sbu_array[ind].connect_vector.has_key("metallic"):
+                nconnect = len(self.sbu_array[ind].connect_vector["metallic"])
+                self.connectivity[size] += [None]*nconnect
+                self.vectorflag[size] += ["metallic"]*nconnect
+                self.connect_points[size] += self.sbu_array[ind].connect_points["metallic"][:]
+                self.connect_vector[size] += self.sbu_array[ind].connect_vector["metallic"][:]
+                self.connect_align[size] += self.sbu_array[ind].connect_align["metallic"][:]
+                self.connect_sym[size] += self.sbu_array[ind].connect_sym["metallic"][:]
+
+        # test for metal - metal bonds
+        if self.sbu_array[ind].metal and \
+            self.sbu_array[ind].connect_vector.has_key("intermetal"):
+            nconnect = len(self.sbu_array[ind].connect_vector["intermetal"])
+            self.connectivity[size] += [None]*nconnect
+            self.vectorflag[size] += ["intermetal"]*nconnect
+            self.connect_points[size] += self.sbu_array[ind].connect_points["intermetal"]
+            self.connect_vector[size] += self.sbu_array[ind].connect_vector["intermetal"]
+            self.connect_align[size] += self.sbu_array[ind].connect_align["intermetal"]
+            self.connect_sym[size] += self.sbu_array[ind].connect_sym["intermetal"]
 
     def periodic_vector(self, sbu1, bond, bondvector):
         """
@@ -1302,15 +1420,14 @@ class Structure(object):
         structures can be obtained.
         """
         # establish which SBUs are tyring to be joined
-        sbu1 = self.mof[sbu1]
         bond1 = bond[0]
-        sbu2 = self.mof[bond[1][0]]
+        sbu2 = bond[1][0]
         bond2 = bond[1][1]
 
         # their anti-parallel X-vectors has already been established.
         # checking now for aligned Y-vectors (alignment).
-        vector1 = normalize(sbu1.anglevect[bond1])
-        vector2 = normalize(sbu2.anglevect[bond2])
+        vector1 = normalize(self.connect_align[sbu1][bond1])
+        vector2 = normalize(self.connect_align[sbu2][bond2])
 
         # test by dot product, the absolute value should = 1
         dotprod = abs(dot(vector1, vector2))
@@ -1321,16 +1438,11 @@ class Structure(object):
         xtest = np.allclose(xprod, np.zeros(3), atol=0.1)
         # FIXME(pboyd): temporary fix for the fact that this constraint
         # won't work for chain-type structures like In3+
-        padd_test = "paddlewheel" in self.sbu_array[0].name
-        if padd_test:
-            if dottest and xtest:
+        if dottest and xtest:
             # check to see if the vector can be added to the 
             # existing lattice vectors
-                if self.valid_vector(bondvector):
-                    return True
-        else:
-            return True
-
+            if self.valid_vector(bondvector):
+                return True
         return False
 
     def remote_attach_sbus(self, bondvector):
@@ -1399,8 +1511,8 @@ class Structure(object):
         vectors = {}
         for bond1 in sorted_list:
             for sbu2 in bond1[1]:
-                connecting_point1 = self.mof[sbu1].connectpoints[bond1[0]]
-                connecting_point2 = self.mof[sbu2[0]].connectpoints[sbu2[1]]
+                connecting_point1 = self.connect_points[sbu1][bond1[0]]
+                connecting_point2 = self.connect_points[sbu2[0]][sbu2[1]]
                 vect = vect_sub(connecting_point2, connecting_point1)
                 # key is (bond, [sbu, bond])
                 vectors[(bond1[0],tuple(sbu2))] = vect
@@ -1412,67 +1524,48 @@ class Structure(object):
         bond of sbu1.  The format is {bond :[sbu#, bond#]}
         """
         # exclude bonds in sbu1 which are already bonded
-        bonds = [i for i in range(len(self.connectivity[sbu1])) 
-                 if self.connectivity[sbu1][i] is None]
         # remove sbu1 from scan
         mofscan = [i for i in range(len(self.mof))]
+        bonds = [i for i in range(len(self.connectivity[sbu1])) 
+                 if self.connectivity[sbu1][i] is None]
         bonding_dic = {}
-        
         for sbu2 in mofscan:
-            bonds2 = [i for i in range(len(self.connectivity[sbu2]))
-                      if self.connectivity[sbu2][i] is None]
-            for bond2 in bonds2:
-                for bond1 in bonds:
-                    if (self.validbond(sbu1, sbu2, bond1, bond2)):
-                        vect1 = self.mof[sbu1].connect_vector[bond1]
-                        vect2 = self.mof[sbu2].connect_vector[bond2]
-                        # note the tolerance here will dictate how many
-                        # structures will be found
-                        if antiparallel_test(vect1, vect2, tol=0.25):
-                            bonding_dic.setdefault(bond1,[]).append([sbu2,bond2])
+            bondpair = [(i, j) for i in range(len(self.connectivity[sbu1]))
+                               for j in range(len(self.connectivity[sbu2]))
+                               if self.connectivity[sbu1][i] is None and
+                               self.connectivity[sbu2][j] is None]
+            for pair in bondpair:
+                if self.valid_connect(sbu1, pair[0], sbu2, pair[1]):
+                    vect1 = self.connect_vector[sbu1][pair[0]]
+                    vect2 = self.connect_vector[sbu2][pair[1]]
+                    # note the tolerance here will dictate how many
+                    # structures will be found
+                    if antiparallel_test(vect1, vect2, tol=0.25):
+                        bonding_dic.setdefault(pair[0],[]).append([sbu2,pair[1]])
         return bonding_dic
-
-    def validbond(self, idx1, idx2, bnd1, bnd2):
-        """Checks for bond type validity."""
-        sbu1 = self.mof[idx1]
-        sbu2 = self.mof[idx2]
-
-        if (bnd1 in sbu1.special_bond) and (bnd2 in sbu2.special_bond):
-            if sbu1.symmetrytype[bnd1] != sbu2.symmetrytype[bnd2]:
-                return True
-        elif (bnd1 not in sbu1.special_bond) and (bnd2 not in 
-                sbu2.special_bond):
-            if not (sbu1.metal == sbu2.metal):
-                return True
-        return False
 
     def overlap_allcheck(self):
         """
         checks for all pairwise atomistic overlaps in a growing MOF
         """
         # tolerance in angstroms
-        tol = 1.5
+        tol = 0.3 
         # TODO(pboyd): include minimum image conv. when determining
         # distances.
-        for idx1, sbu in enumerate(self.mof):
-            for idx2 in range(idx1+1, len(self.mof)):
-                bonded_atoms = (None, None)
-                if self.bonded(idx1, idx2):
-                    # return atoms which form bond
-                    bonded_atoms = self.bonded_atoms(idx1, idx2)
-                sbu2 = self.mof[idx2]
-                distmat = distance.cdist(sbu.coordinates, sbu2.coordinates)
-                #distmat = self.min_imgconv(distmat)
+        for idx1 in range(len(self.connectivity)-1):
+            for idx2 in range(idx1+1, len(self.connectivity)):
+                distmat = distance.cdist(self.coordinates[idx1], 
+                                        self.coordinates[idx2])
                 check = [(i,j) for i in range(len(distmat)) for 
                         j in range(len(distmat[i])) if 
-                        distmat[i][j] <= tol and (bonded_atoms != (i,j))]
+                        distmat[i][j] <= tol]
                 if len(check) > 0:
                     for ovlp in check:
                         warning(
                         "overlap found between SBU %i (%s), atom %i, "%
-                        (idx1, sbu.name, ovlp[0]) + "%s and SBU %i (%s),"
-                        %(sbu.atomlabel[ovlp[0]], idx2, sbu2.name) +
-                        "atom %i, %s."%(ovlp[1], sbu2.atomlabel[ovlp[1]]))
+                        (idx1, self.mof[idx1].name, ovlp[0]) + "%s and SBU %i (%s),"
+                        %(self.atoms[idx1][ovlp[0]], idx2, self.mof[idx2].name) +
+                        "atom %i, %s."%(ovlp[1], self.atoms[idx2][ovlp[1]]))
                     return True
         return False
 
@@ -1501,26 +1594,6 @@ class Structure(object):
                 if self.connectivity[idx2][idx] == idx1]
         return (sbu1.bondingatoms[bndindx1[0]], 
                 sbu2.bondingatoms[bndindx2[0]])
-
-    def min_imgconv(self, distmat):
-        """
-        Takes a distance matrix and reduces the distances to the 
-        minimum image convention.
-        """
-        # Step 1 convert distances to fractional coordinates.  If 
-        # there are no periodic boundaries forget this entire routine.
-
-        fdist = fractional(distmat)
-
-        # Step 2 apply minimum image convention to fractional coordinates
-
-        #distmat = minimg.
-
-        # Step 3 convert back to cartesian coordinates
-
-        distmat = distmat * cellvectors
-
-        return distmat
 
     def overlap(self, sbu1, tol=None):
         """
@@ -1558,84 +1631,65 @@ class Structure(object):
 
     def add_new_sbu(self, sbu1, bond1, sbutype2, bond2, iangle):
         """adds a new sbutype2 to the growing MOF"""
-
         # determine what type of bond is being formed
         name = self.vectorflag[sbu1][bond1]
-        # use angle listed on organic species bond type
-        if self.sbu_array[sbutype2].metal:
-            angle = self.mof[sbu1].connect_angles[name][iangle]
-        else:
-            angle = self.sbu_array[sbutype2].connect_angles[name][iangle]
-
+        angle = self.connect_angles[iangle]
         # TODO(pboyd): change this from a copy of the SBU class to an
         # "import" of the relevant data.
+        self.import_sbu(sbutype2, name)
         self.mof.append(copy.deepcopy(self.sbu_array[sbutype2]))
         sbu2 = len(self.mof) - 1
-
-        nconnect = len(self.mof[sbu2].connect_points[name])
-        self.connectivity.append([None]*nconnect)
-        self.vectorflag.append(name*nconnect)
-        # add extra "metallic" sites if the generation scheme calls for it
-        if (name == "pcu") and self.mof[sbu2].metal:
-            # check for existence of key "metallic"
-            if self.mof[sbu2].connect_points.has_key("metallic"):
-                nconnect = len(self.mof[sbu2].connect_points["metallic"])
-                self.connectivity[sbu2].append([None]*nconnect)
-                # add flag for metallic bond
-                self.vectorflag.append(["metallic"]*nconnect)
 
         info(
             "Added %s, SBU %i, bond %i to SBU %i, %s bond %i."
             %(self.mof[sbu2].name, sbu2, bond2, sbu1,
               self.mof[sbu1].name, bond1))
+
+        self.join_sbus(sbu1, bond1, sbu2, bond2, True)
         # TODO(pboyd): add option to debug and apply if true.
         self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
         self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
         self.xyz_debug()
-        dump = self.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], self.cell, self.origins)
+        #dump = self.coordinate_dump()
+        #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
     def bond_align(self, sbu1, bond1, sbu2, bond2, rotangle):
         """
         Align two sbus by their orientation vectors
         """
 
-        sbu1 = self.mof[sbu1]
-        sbu2 = self.mof[sbu2]
-
-        axis = normalize(sbu2.connect_vector[self.name][bond2])
-        angle = calc_angle(sbu2.connect_align[self.name][bond2],
-                           sbu1.connect_align[self.name][bond1])
+        axis = normalize(self.connect_vector[sbu2][bond2])
+        angle = calc_angle(self.connect_align[sbu2][bond2],
+                           self.connect_align[sbu1][bond1])
 
         if np.allclose(angle, 0., atol=0.01):
             return
         # origin of rotation
-        rotpoint = sbu2.connect_points[bond2] 
+        rotpoint = self.connect_points[sbu2][bond2] 
 
         # test to see if the rotation is in the right direction
         R = rotation_matrix(axis, angle)
-        test_vect = matrx_mult(sbu2.connect_align[bond2], R)
-        test_angle = calc_angle(sbu1.connect_align[bond1],
+        test_vect = matrx_mult(self.connect_align[sbu2][bond2], R)
+        test_angle = calc_angle(self.connect_align[sbu1][bond1],
                            test_vect)
         # FIXME(pboyd): the tolerance below is quite large,
         if not np.allclose(test_angle, 0., atol=1e-1):
             axis = scalar_mult(-1.,axis)
         # rotation of SBU
         self.sbu_rotation(sbu2, rotpoint, axis, angle + rotangle)
-        #angle2 = calc_angle(sbu1.connect_align[bond1],
-        #                   sbu2.connect_align[bond2])
+
     def sbu_align(self, sbu1, bond1, sbu2, bond2):
         """
         Align two sbus, were sbu1 is held fixed and
@@ -1647,36 +1701,34 @@ class Structure(object):
         # and which will rotate.  This axis will determine the
         # proper rotation when applying the rotation matrix
 
-        sbu1 = self.mof[sbu1]
-        sbu2 = self.mof[sbu2]
-
-        axis = rotation_axis(sbu2.connect_vector[bond2], 
-                            scalar_mult(-1., sbu1.connect_vector[bond1]))
-        angle = calc_angle(sbu2.connect_vector[bond2], 
-                           scalar_mult(-1.,sbu1.connect_vector[bond1]))
+        axis = rotation_axis(self.connect_vector[sbu2][bond2], 
+                            scalar_mult(-1., 
+                                self.connect_vector[sbu1][bond1]))
+        angle = calc_angle(self.connect_vector[sbu2][bond2], 
+                           scalar_mult(-1.,
+                               self.connect_vector[sbu1][bond1]))
         # origin of rotation
-        rotpoint = sbu2.centre_of_mass()
+        rotpoint = centre_of_mass(self.atoms[sbu2], self.coordinates[sbu2])
 
         while (np.allclose(axis, np.zeros(3), atol=1e-4)):
             randaxis = normalize([random(), random(), random()])
             randangle = uniform(0., np.pi/3.)
             self.sbu_rotation(sbu2, rotpoint, randaxis, randangle)
-            axis = rotation_axis(sbu2.connect_vector[bond2], 
-                             scalar_mult(-1.,sbu1.connect_vector[bond1]))
-            angle = calc_angle(sbu2.connect_vector[bond2], 
-                           scalar_mult(-1.,sbu1.connect_vector[bond1]))
-
+            axis = rotation_axis(self.connect_vector[sbu2][bond2], 
+                             scalar_mult(-1.,self.connect_vector[sbu1][bond1]))
+            angle = calc_angle(self.connect_vector[sbu2][bond2], 
+                           scalar_mult(-1.,self.connect_vector[sbu1][bond1]))
         # rotate sbu2
         self.sbu_rotation(sbu2, rotpoint, axis, angle)
 
         # shift the coordinates by the shift vectors 
-        shiftvector = vect_sub(sbu1.connect_points[bond1],
-                               sbu2.connect_points[bond2])
+        shiftvector = vect_sub(self.connect_points[sbu1][bond1],
+                               self.connect_points[sbu2][bond2])
         # bond points are then shifted by the shiftvector
-        sbu2.connect_points = [vect_add(i,shiftvector) for i 
-                              in sbu2.connectpoints]
-        sbu2.coordinates = [vect_add(i,shiftvector) for i in
-                            sbu2.coordinates]
+        self.connect_points[sbu2] = [vect_add(i,shiftvector) for i 
+                              in self.connect_points[sbu2]]
+        self.coordinates[sbu2] = [vect_add(i,shiftvector) for i in
+                            self.coordinates[sbu2]]
 
     def getfinals(self):
         """
@@ -1709,13 +1761,15 @@ class Structure(object):
         # must be applied if the position of rotation is not the 
         # origin, using rotpoint * (I - R) 
         C = matrx_mult(rotpoint, matrx_sub(identity3, R))
-        sbu.coordinates = [vect_add(matrx_mult(i, R), C) 
-                            for i in sbu.coordinates]
-        sbu.connect_points = [vect_add(matrx_mult(i, R), C)
-                            for i in sbu.connect_points]
+        self.coordinates[sbu] = [vect_add(matrx_mult(i, R), C) 
+                            for i in self.coordinates[sbu]]
+        self.connect_points[sbu] = [vect_add(matrx_mult(i, R), C)
+                            for i in self.connect_points[sbu]]
         # connect_vector and anglevect are ALWAYS centered at the origin!!
-        sbu.connect_vector = [matrx_mult(i, R) for i in sbu.connect_vector]
-        sbu.connect_align = [matrx_mult(i, R) for i in sbu.connect_align]
+        self.connect_vector[sbu] = [matrx_mult(i, R) for i in 
+                                    self.connect_vector[sbu]]
+        self.connect_align[sbu] = [matrx_mult(i, R) for i 
+                                    in self.connect_align[sbu]]
     
     def final_coords(self):
         """
@@ -1819,8 +1873,7 @@ class Structure(object):
             self.connectivity[sbu1][bond1] = -1*sbu2
             self.connectivity[sbu2][bond2] = -1*sbu1
         
-
-    def apply_pbc(self, vector):
+    def min_img(self, vector):
         """
         applies periodic boundary conditions to a vector
         """
@@ -1832,35 +1885,35 @@ class Structure(object):
         if np.allclose(vector, zeros1):
             return vector
         if self.pbcindex == 0:
-            vector = vectorshift(vector, A)
+            # project the bond vector on the single periodic vector
+            # then determine if it needs to be shifted.
+            projection = project(vector, A)
+            fractional = length(projection) / length(A)
+            if antiparallel_test(projection, A):
+                # shift vector is a multiple of the periodic boundary
+                # to reduce the vector to it's minimum image
+                shift_vector = scalar_mult(-1.*round(fractional), A)
+            else:
+                shift_vector = scalar_mult(round(fractional), A)
+            # one dimensional shift is just a vector subtraction
+            vector = vect_sub(vector, shift_vector)
+
         elif self.pbcindex == 1:
-            proj_a = project(vector, self.cell[0])
-            proj_b = project(vector, self.cell[1])
-            a = length(proj_a) / length(self.cell[0])
-            b = length(proj_b) / length(self.cell[1])
+            proj_a = project(vector, A)
+            proj_b = project(vector, B)
+            a = length(proj_a) / length(A)
+            b = length(proj_b) / length(B)
+            a = round(a)
+            b = round(b)
             if antiparallel_test(proj_a, self.cell[0]):
                 a = -1.*a
             if antiparallel_test(proj_b, self.cell[1]):
                 b = -1.*b
-            # round a and b to 4 decimal places.  Precision can cause
-            # problems if a and b are really close to 1, but under
-            # so math.floor doesn't subtract by 1.
-            a = round(a, 4)
-            b = round(b, 4)
-            vector = vect_sub(vector, scalar_mult(math.floor(a),A)) 
-            vector = vect_sub(vector, scalar_mult(math.floor(b),B))
+            vector = vect_sub(vector, scalar_mult(a,A)) 
+            vector = vect_sub(vector, scalar_mult(b,B))
 
         elif self.pbcindex == 2:
             (a, b, c) = matrx_mult(vector, self.icell)
-            #bca = dot(B, cross(C, A))
-            #a = dot(C, cross(vector, B)) / bca
-            #b = dot(C, cross(vector, A)) / (-1.*bca)
-            #c = dot(B, cross(vector, A)) / bca
-
-            #a = a - math.floor(a)
-            #b = b - math.floor(b)
-            #c = c - math.floor(c)
-            
             a = a - round(a)
             b = b - round(b)
             c = c - round(c)
@@ -1884,33 +1937,34 @@ class Structure(object):
         bondformat = "%s%12.5f%12.5f%12.5f " +\
                      "atom_vector%12.5f%12.5f%12.5f " +\
                      "atom_vector%12.5f%12.5f%12.5f\n"
-        #cellformat = "%s%12.5f%12.5f%12.5f " +\
-        #             "atom_vector%12.5f%12.5f%12.5f\n" 
         cellformat = "%s%12.5f%12.5f%12.5f " +\
-                     "atom_vector%12.5f%12.5f%12.5f " +\
-                     "atom_vector%12.5f%12.5f%12.5f " +\
                      "atom_vector%12.5f%12.5f%12.5f\n" 
+        #cellformat = "%s%12.5f%12.5f%12.5f " +\
+        #             "atom_vector%12.5f%12.5f%12.5f " +\
+        #             "atom_vector%12.5f%12.5f%12.5f " +\
+        #             "atom_vector%12.5f%12.5f%12.5f\n" 
         atomformat = "%s%12.5f%12.5f%12.5f\n"
         
         line = []
-        atomcount = 1
-        line.append(cellformat%(tuple(["C"] + [0.,0.,0.] +
-                    list(self.cell[0]) + list(self.cell[1])+ list(self.cell[2]))))
-        #atomcount = 3
-        #for icell, cell in enumerate(self.cell):
-        #    line.append(cellformat%(tuple(["C"] + list(self.origins[icell])
-        #                + list(cell))))
-        for sbu in self.mof:
-            for ibond, bondpt in enumerate(sbu.connectpoints):
+        #atomcount = 1
+        #line.append(cellformat%(tuple(["C"] + [0.,0.,0.] +
+        #            list(self.cell[0]) + list(self.cell[1])+ list(self.cell[2]))))
+        atomcount = 3
+        for icell, cell in enumerate(self.cell):
+            line.append(cellformat%(tuple(["C"] + list(self.origins[icell])
+                        + list(cell))))
+        
+        for sbu in range(len(self.connect_points)):
+            for ibond in range(len(self.connect_points[sbu])):
                 atomcount += 1
-                bondpt = self.apply_pbc(bondpt)
-                line.append(bondformat%(tuple(["F"]+list(bondpt)+
-                                        list(sbu.connect_vector[ibond])+
-                                        list(sbu.anglevect[ibond]))))
-            for icoord, coord in enumerate(sbu.coordinates): 
+                line.append(bondformat%(
+                    tuple(["F"]+list(self.connect_points[sbu][ibond])+
+                    list(self.connect_vector[sbu][ibond])+
+                    list(self.connect_align[sbu][ibond]))))
+            for icoord in range(len(self.coordinates[sbu])): 
                 atomcount += 1
-                coord = self.apply_pbc(coord)
-                line.append(atomformat%(tuple([sbu.atomlabel[icoord]]+list(coord))))
+                line.append(atomformat%(tuple([self.atoms[sbu][icoord]]
+                    +list(self.coordinates[sbu][icoord]))))
 
         xyzfile.write("%i\nDebug\n"%atomcount)
         xyzfile.writelines(line)
@@ -1922,11 +1976,11 @@ class Structure(object):
         """
         for i in range(self.pbcindex+1):
             if self.line_test(i, vect, tol=0.2):
-                print "parallel boundary vector exists!"
+                info("parallel boundary vector exists!")
                 return False
         if self.pbcindex == 1:
             if self.plane_test(vect, tol=0.2):
-                print "vector lies in the same plane!"
+                info("vector lies in the same plane!")
                 return False
         if self.pbcindex == 2:
             # This may change in the future, if changeable 
@@ -2377,6 +2431,24 @@ def write_xyz(label, atoms, coords, cell, origin=None):
     for i in range(len(coords)):
         xyzfile.write('%s%12.5f%12.5f%12.5f\n' % 
                 (tuple([atoms[i]]+list(coords[i]))))
+
+def centre_of_mass(atoms, coordinates):
+    """
+    calculates the centre of mass:
+    sum(mass*coordinate) / sum(masses)
+    
+    or top / bottom
+
+    In this calculation the bottom value is also stored
+    as the self.mass
+    """
+    top = zeros1
+    bottom = 0.
+    for i in range(len(atoms)):
+        massvect = scalar_mult(WEIGHT[atoms[i]], coordinates[i])
+        top = vect_add(top, massvect)
+        bottom += WEIGHT[atoms[i]]
+    return scalar_div(bottom, top)
 
 def main():
     """Default if run as an executable"""
