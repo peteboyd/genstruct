@@ -10,6 +10,21 @@ import textwrap
 import copy
 from time import time
 
+xyzbondfmt = "%s%12.5f%12.5f%12.5f " +\
+             "atom_vector%12.5f%12.5f%12.5f " +\
+             "atom_vector%12.5f%12.5f%12.5f\n"
+xyzcellfmt1 = "%s%12.5f%12.5f%12.5f " +\
+             "atom_vector%12.5f%12.5f%12.5f\n"
+xyzcellfmt2 = "%s%12.5f%12.5f%12.5f " +\
+             "atom_vector%12.5f%12.5f%12.5f " +\
+             "atom_vector%12.5f%12.5f%12.5f " +\
+             "atom_vector%12.5f%12.5f%12.5f\n"
+xyzatomfmt = "%s%12.5f%12.5f%12.5f\n"
+
+#pdb format determined from description in pdb document
+pdbatmfmt = "%-6s%5i%5s%1s%3s%2s%4i%1s%11.3f%8.3f%8.3f%6.2f%6.2f%12s%2s\n"
+pdbcellfmt = "%-6s%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f P1\n"
+
 class Log:
 
     def __init__(self, file=None):
