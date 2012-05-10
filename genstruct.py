@@ -324,6 +324,7 @@ class Generate(object):
         self.moflib.append(structure)
         # Start the string off at "0-0-0-0-0"
         iterstring = 0
+        indexset = set([sbu.index for sbu in structure.sbu_array])
         done = False
         while not done:
             #apply the string
@@ -371,9 +372,19 @@ class Generate(object):
                             copystruct.xyz_debug()
                             structcount += 1
 
-                    if structcount == 1:
-                        done = True
-                        break
+                    if copystruct.name == "pcu":
+                        if len(indexset) > 2:
+                            if structcount == 3:
+                                done = True
+                                break
+                        else:
+                            if structcount == 1:
+                                done = True
+                                break
+                    else:
+                        if structcount == 1:
+                            done = True
+                            break
 
             #iterate the string
             iterstring += 1
