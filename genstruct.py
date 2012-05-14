@@ -365,6 +365,7 @@ class Generate(object):
                                     self.mofcount)
                             for sbu in copystruct.sbu_array:
                                 pdbfile += "_%i"%(sbu.index)
+                            pdbfile += "_%s"%(copystruct.name)
                             copystruct.write_pdb(pdbfile)
                             #///////////////////////////////////////
                             info("Structure Generated!")
