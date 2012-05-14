@@ -373,7 +373,10 @@ class Generate(object):
                             copystruct.xyz_debug()
                             structcount += 1
 
-                    if copystruct.name == "pcu":
+                    # constraints and conditions related to specific
+                    # topologies
+                    if copystruct.name == "pcu" or 
+                       copystruct.name == "nbo":
                         if len(indexset) > 2:
                             if structcount == 3:
                                 done = True
@@ -518,7 +521,10 @@ class Generate(object):
         sbu2 = struct.sbu_array[idx[2]]
         sbu_list = (sbu1, sbu2)
 
-
+        # TODO(pboyd): if the topology is 'tbo' then there are max 13?
+        # SBU's in the structure.  If the string goes higher than this
+        # ignore.
+        # Similarly, 'nbo' goes to 8.
         inter_metal_test = [sbu.connect_points.has_key("intermetal")
                 for sbu in sbu_list]
         pcu_metal_test = [sbu.connect_points.has_key("metallic") and \
@@ -2392,7 +2398,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("fortesting3", options)
+    sbutest = Database("wilmerdatabase", options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 if __name__ == '__main__':
