@@ -118,11 +118,11 @@ class Generate(object):
 
     def metcount(self, entry):
         """ returns the number of metals in the entry """
-        metcount = 0
+        mcount = 0
         for element in entry:
             if self.database[element].metal:
-                metcount += 1 
-        return metcount
+                mcount += 1 
+        return mcount
 
     def sort(self, array):
         """Sort an SBU array based on indices."""
@@ -322,6 +322,7 @@ class Generate(object):
         self.bondhist = []
         self.generate_stringset(structure)
         self.moflib.append(structure)
+        structure.sbu_check(0)
         # Start the string off at "0-0-0-0-0"
         iterstring = 0
         indexset = set([sbu.index for sbu in structure.sbu_array])
@@ -375,7 +376,7 @@ class Generate(object):
 
                     # constraints and conditions related to specific
                     # topologies
-                    if copystruct.name == "pcu" or 
+                    if copystruct.name == "pcu" or \
                        copystruct.name == "nbo":
                         if len(indexset) > 2:
                             if structcount == 3:
@@ -525,6 +526,12 @@ class Generate(object):
         # SBU's in the structure.  If the string goes higher than this
         # ignore.
         # Similarly, 'nbo' goes to 8.
+        if struct.name == "tbo":
+            if len(struct.connectivity) > 13:
+                return False
+        #elif struct.name == "nbo":
+        #    if len(struct.connectivity) > 9:
+        #        return False
         inter_metal_test = [sbu.connect_points.has_key("intermetal")
                 for sbu in sbu_list]
         pcu_metal_test = [sbu.connect_points.has_key("metallic") and \
@@ -601,7 +608,7 @@ class Generate(object):
                     sbu.connect_points.has_key("metallic"):
                 numbonds += len(sbu.connect_points["metallic"])-1
             if sbu.metal and sbu.connect_points.has_key("intermetal"):
-                numbonds += len(sbu.connect_points["metallic"])-1
+                numbonds += len(sbu.connect_points["intermetal"])-1
                 
             maxangle = max(maxangle, anglelen)
             maxbond = max(maxbond, numbonds)
@@ -1216,7 +1223,9 @@ class Structure(object):
             return
 
         for bond in bondlist:
+            #info("non adj vector: (%6.3f,%6.3f,%6.3f)"%tuple(bondvects[bond]))
             adjusted_vect = self.min_img(bondvects[bond])
+            #info("min img vector: (%6.3f, %6.3f, %6.3f)"%tuple(adjusted_vect))
             if length(adjusted_vect) <= tol:
                 # bonds are close
                 try:
@@ -1564,21 +1573,21 @@ class Structure(object):
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
         # TODO(pboyd): add option to debug and apply if true.
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
