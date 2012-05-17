@@ -357,7 +357,6 @@ class Generate(object):
                         else:
                             #///////////////////////////////////////
                             # TODO(pboyd):put into separate function
-                            copystruct.xyz_debug()
                             copystruct.final_coords()
                             copystruct.mof_reorient()
                             copystruct.get_cartesians()
@@ -371,7 +370,7 @@ class Generate(object):
                             #///////////////////////////////////////
                             info("Structure Generated!")
                             copystruct.origins = zeros3[:]
-                            copystruct.xyz_debug()
+                            #copystruct.xyz_debug()
                             structcount += 1
 
                     # constraints and conditions related to specific
@@ -402,84 +401,6 @@ class Generate(object):
         if ints[0] >= len(self.moflib[ind].mof):
             return False
         return True
-
-
-    def branched_generation(self, dataset, indices):
-
-        # generate a complete list of strings to sample
-        self.generate_stringset(dataset)
-        # correction to bondhist such that the routines work as they
-        # do for the exhaustive_generation routine
-        self.bondhist = [[]]
-        structcount = 0
-        # initialize timing
-        stopwatch = Time()
-        # only one structure generated (a "leaf")
-        done = False
-        struct = Structure(dataset)
-        self.random_insert(0, dataset, struct)
-        struct.xyz_debug()
-        dump = struct.coordinate_dump()
-        write_xyz("history", dump[0], dump[1], struct.cell, struct.origins)
-        step = 0
-        while not done:
-            string = self.strings[step]
-            stringtype = self.valid_string(string, struct, dataset)
-            ints = [int(i) for i in string.split("-")]
-            if stringtype == "True":
-                debug("Applying %s"%(string))
-                debug("Number of SBUs in structure: %i"%
-                    (len(struct.mof)))
-                sbu2 = len(struct.mof)
-                struct.apply_string(string)
-                struct.join_sbus(ints[0], ints[1], sbu2, ints[3], True)
-                struct.sbu_check(sbu2)
-                if struct.overlap_allcheck():
-                    warning("SBU overlap occured")
-                    # remove the SBU from the list, try an incremented
-                    # string.
-                    struct.mof.pop()
-                    struct.connectivity.pop()
-                    struct.disjoin_sbus(ints[0], ints[1], sbu2, ints[3])
-
-                else:
-                    bondtype = self.determine_bondtype(string, struct, dataset)
-                    struct.bondhist.append(bondtype)
-                    self.bondhist[0].append(bondtype)
-                    struct.stringhist.append(string)
-
-                struct.complete_box()
-                if struct.saturated() and struct.complete_box():
-                    struct.final_coords()
-                    struct.mof_reorient()
-                    final_coords = struct.getfinals()
-                    dump = struct.coordinate_dump()
-                    self.nstructs += 1
-                    filename = "%i_struct"%(self.nstructs)
-                    for i in indices:
-                        filename = filename + "_%i"%(i)
-                    write_pdb(self.outdir+filename, dump[0], final_coords, 
-                              struct.acell)
-                    write_xyz(self.outdir+filename, dump[0], final_coords, 
-                        struct.cell, struct.origins)
-                    # stop the timer
-                    self.stringhist[tuple(indices[:-1])] = struct.stringhist
-                    info("Structure generated!")
-                    done = True
-
-                elif struct.saturated() and not struct.complete_box():
-                    info("No structure generated.  Not 3-periodic")
-                    done = True
-            step += 1
-            if stringtype == "Backup":
-                done = True
-                # re-initialize the structure
-                #struct = Structure(dataset)
-                # re-apply the existing strings
-                #self.readjust(struct, it, dataset)
-
-            if step == 64000:
-                done = True
 
     def generate_mofstrings(self, dataset):
         """
@@ -1573,21 +1494,21 @@ class Structure(object):
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
         # TODO(pboyd): add option to debug and apply if true.
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
