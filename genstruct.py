@@ -90,7 +90,7 @@ class Generate(object):
                         for i in subset],name)
                 self.unique_bondtypes(basestructure)
                 self.exhaustive_generation(basestructure)
-
+            # add functional groups to built MOFs
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
 
@@ -373,6 +373,10 @@ class Generate(object):
                             #copystruct.xyz_debug()
                             structcount += 1
 
+                    # Give up if number of structures becomes too big.
+                    if len(self.moflib) > 12000:
+                        done = True
+                        break
                     # constraints and conditions related to specific
                     # topologies
                     if copystruct.name == "pcu" or \
@@ -2328,7 +2332,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("wilmerdatabase", options)
+    sbutest = Database("fortesting", options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 if __name__ == '__main__':
