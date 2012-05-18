@@ -43,9 +43,12 @@ class Generate(object):
         self.database = database.database
         # count the number of structures generated
         self.nstructs = 0
-        # count the number of structures generated with a particular
-        # set of linkers
-        self.structcounter = 0
+        # the max number of mofs allowable for a particular set of
+        # linkers.
+        self.max_mofs = 6
+        # temporary array to store up to self.max_mofs for a given
+        # combination of SBUs
+        self.complete_mofs = []
         # moflib is the list containing MOF structures for extensive
         # branching
         self.moflib = []
@@ -85,15 +88,26 @@ class Generate(object):
             #check for possible MOF topologies
             buildlist = self.determine_topology(subset)
             for name in buildlist:
+                self.complete_mofs = []
                 basestructure = Structure(
                         [copy.deepcopy(self.database[i])
                         for i in subset],name)
                 self.unique_bondtypes(basestructure)
                 self.exhaustive_generation(basestructure)
-            # add functional groups to built MOFs
+                # add functional groups to built MOFs
+                if len(self.complete_mofs) > 0:
+                    self.apply_functional_groups()
+
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
 
+    def apply_functional_groups(self):
+        """
+        Applies functional groups to built MOFs.
+        """
+        # determine which hydrogens to replace, what their
+        # connecting atoms are (Important for overlap considerations)
+        
     def determine_topology(self, indices):
         """
         Returns a list of topological names which appear across all
@@ -367,6 +381,9 @@ class Generate(object):
                                 pdbfile += "_%i"%(sbu.index)
                             pdbfile += "_%s"%(copystruct.name)
                             copystruct.write_pdb(pdbfile)
+                            # export the MOF for functional group
+                            # placement
+                            self.complete_mofs.append(copy.deepcopy(copystruct))
                             #///////////////////////////////////////
                             info("Structure Generated!")
                             copystruct.origins = zeros3[:]
@@ -438,8 +455,6 @@ class Generate(object):
         addition of an SBU.
         """
         name = struct.name
-        testring = "0-0-2-0-0"
-        test = string == testring
         idx = [int(i) for i in string.split("-")]
         if idx[0] >= len(struct.mof):
             return False
@@ -488,8 +503,6 @@ class Generate(object):
         bond = self.determine_bondtype(string, struct)
        
         if not bond:
-            if test:
-                print "here"
             return False
 
         # check if the bond with the same symmetry has been made
@@ -605,14 +618,70 @@ class SBU(object):
         # index of the atoms which form connecting bonds with
         # other SBUs
         self.bondingatoms = []
-        # store special bonding indices here
-        self.special_bond = []
         self.COM = {}
+
+        # store a connectivity table
+        self.table = []
+        # store indices which are Hydrogen atoms
+        self.hydrogens = []
+        # store indices of atoms bonded to Hydrogen atoms.
+        # in the same order.
+        self.hydrogens_connect = []
 
         self.init_arrays(data)
 
         self.centre_of_mass()
         self.COM_shift()
+        self.find_hydrogen_atoms()
+
+    def find_hydrogen_atoms(self):
+        """
+        Finds hydrogen atoms and the atom connected to it (probably C)
+        """
+        self.coord_matrix()
+        # reference the default coordinates
+        name = "default"
+        numatms = len(self.atom_label[name])
+        self.hydrogens = [ind for ind in range(numatms) if
+                self.atom_label[name][ind] == "H"]
+       
+
+        # assumes only one atom bonded to hydrogen
+        self.hydrogens_connect = [0] * len(self.hydrogens)
+        for ind, hydrogen in enumerate(self.hydrogens):
+            # determine bonded atom index
+            for atom, dist in enumerate(self.table[hydrogen]):
+                if dist > 0.:
+                    atname = self.atom_label[name][atom]
+                    self.hydrogens_connect[ind] = atom
+
+    def coord_matrix(self):
+        """
+        Generate a coordination matrix for the SBU's coordinates.
+        Currently only does 'default' coordinates.
+        """
+        # assume the 'default' arrangment is transferrable.
+        name = "default"
+        numatms = len(self.atom_label[name])
+        # populate empty connectivity table
+        self.table = [[0.] * numatms for i in xrange(numatms)]
+        # bonding depreciated?
+        bonding = [[]] * numatms
+
+        distmatrx = distance.cdist(self.coordinates[name], 
+                                   self.coordinates[name])
+        fuckthis = []
+        for i in range(numatms):
+            for j in range(i+1, numatms):
+                tol = bond_tolerance(self.atom_label[name][i], 
+                                     self.atom_label[name][j])
+                if (i != j) and (distmatrx[i,j] <= tol):
+                    fuckthis.append((i, j, distmatrx[i,j]))
+                    self.table[i][j] = distmatrx[i,j]
+                    self.table[j][i] = distmatrx[j,i]
+                    bonding[i].append(j)
+                    bonding[j].append(i)
+        return 
 
     def init_arrays(self, data):
         """ Converts data stream to arrays. """
@@ -672,6 +741,7 @@ class SBU(object):
                 self.connect_angles[name] = angles
         else:
             self.connect_angles.setdefault("default", []).append(0.0)
+
     def choose_fnl_sites(self, fnlgrp):
         """Return an array of hydrogen sites to be replaced with
         functional groups"""
@@ -785,112 +855,6 @@ class SBU(object):
         fnlgrp.connectpoint = vect_add(matrx_mult(fnlgrp.connectpoint, R), C)
         fnlgrp.connect_vector = matrx_mult(fnlgrp.connect_vector, R)
 
-    def from_pdb(self, filename):
-        """Reads atom coordinates of an SBU from a pdb file"""
-
-        filename = filename + ".pdb"
-        pdbfile = open(filename)
-        pdblines = pdbfile.readlines()
-        for line in pdblines:
-            if line.lower().startswith('remark'):
-                if line[7:15].strip().lower().startswith('index'):
-                    self.index = int(line[16:].strip())
-                if line[7:15].strip().lower().startswith('name'):
-                    self.name = line[16:].strip()
-            if line.lower().startswith('name'):
-                self.name = line[5:].strip()
-            if line.lower().startswith('atom'):
-                label = line[12:16].strip()
-                self.atomlabel.append(label)
-                self.coordinates.append([float(line[30:38]), 
-                    float(line[38:46]), float(line[47:54])])
-                if (label == "X") or (label == "G"):
-                    # error if no symmetry type is included.
-                    self.symmetrytype.append(int(line[80:85]))
-                    angles = [float(i) for i in line[86:].split()]
-                    if len(angles) == 0:
-                        self.connectangles.append([0.])
-                    else:
-                        self.connectangles.append(angles)
-        pdbfile.close()
-        # populate arrays
-        # structcalc is a tuple of important connectivity information
-        # of the linker
-        structcalc = coord_matrix(self.atomlabel, self.coordinates)
-        self.connect = structcalc[0]
-        self.bonding = structcalc[1]
-        self.nbonds = structcalc[2]
-        # add linking points to the SBU.
-        # TODO(pboyd): add possible linking types
-        self.add_connect_vector()
-        # determine the number of H's in the SBU
-        self.hydrogens = [i for i in range(len(self.atomlabel)) if 
-                        self.atomlabel[i] == "H"]
-    def add_connect_vector(self):
-        """
-        checks for certain atoms and adds topological connecting
-        points.  X = the connection point, Y = the vector designed
-        to orient the bond, Z = the bond vector(Z-X)
-        """
-
-        purgeatoms = []
-        for indx, atom in enumerate(self.atomlabel):
-            # test for "X" atoms (considered a linking point)
-            if (atom == "X") or (atom == "G"):
-                # there should only be a "Y" and a "Z" bonding to an "X"
-                # TODO(pboyd): add error checking if Y and Z not on X
-                # also, if no X atom
-                if (atom == "G"):
-                    # flag this bond as a special case
-                    # this is the index for the bond.
-                    self.special_bond.append(len(self.connectpoints))
-                for i in self.bonding[indx]:
-                    if self.atomlabel[i] == "Y":
-                        # angle vector required to align SBUs
-                        vect = vect_sub(self.coordinates[i],
-                                        self.coordinates[indx])
-                        self.anglevect.append(vect)
-                        purgeatoms.append(i)
-                    elif self.atomlabel[i] == "Z":
-                        vect = vect_sub(self.coordinates[i],
-                                        self.coordinates[indx])
-                        self.connect_vector.append(vect)
-                        purgeatoms.append(i)
-
-                    else:
-                        self.bondingatoms.append(i)
-                
-                pt = self.coordinates[indx]
-                self.connectpoints.append(pt)
-                purgeatoms.append(indx)
-        # purge any coordinates in self.coordinates belonging to "X"'s
-        # and "Y"'s as they are now part of self.connect_vector 
-        # and self.connectpoints and self.anglevect
-        self.purge(purgeatoms)
-
-        if len(self.anglevect) == 0:
-            error("anglevect is wrong")
-            sys.exit(0)
-
-    def purge(self, atoms):
-        """Remove entries for X and Y atoms in the atomic coordinates"""
-        atoms.sort()
-        for patm in reversed(atoms):
-            # correct for index of bonding atoms when purging 
-            # connectivity data
-            for idx, atom in enumerate(self.bondingatoms):
-                if atom > patm:
-                    self.bondingatoms[idx] = atom -  1
-            self.coordinates.pop(patm)
-            self.atomlabel.pop(patm)
-            self.nbonds.pop(patm)
-            self.bonding.pop(patm)
-
-        struct = coord_matrix(self.atomlabel, self.coordinates)
-        self.connect = struct[0]
-        self.bonding = struct[1]
-        self.nbonds = struct[2]
-
     def centre_of_mass(self):
         """
         calculates the centre of mass:
@@ -952,58 +916,6 @@ class SBU(object):
         xyzfile.write("%i\nDebug\n"%atomcount)
         xyzfile.writelines(line)
         xyzfile.close()
-
-class Functional_group(object):
-    """
-    Class to contain all information about a functional group
-    """
-    
-    def __init__(self, file=None):
-        self.index = None
-        self.name = None
-        self.atomlabel = []
-        self.coordinates = []
-        self.connectpoint = np.zeros(3)
-        self.connect_vector = np.zeros(3) 
-
-        if (file is not None):
-            self.from_pdb(file)
-            structure = coord_matrix(self.atomlabel, self.coordinates)
-            self.evaluate_bonding(structure[1])
-
-    def evaluate_bonding(self, bonding):
-        """Determines the connectpoint, connect_vector"""
-        purgeatom = []
-        for it, bond in enumerate(bonding):
-            if self.atomlabel[it] == "J":
-                vect = vect_sub(self.coordinates[it],
-                                self.coordinates[bond[0]])
-                self.connect_vector = vect
-                self.connectpoint = self.coordinates[bond[0]]
-                purgeatom.append(it)
-
-        for j in purgeatom:
-            self.atomlabel.pop(j)
-            self.coordinates.pop(j)
-
-    def from_pdb(self, filename):
-        """Reads atom coordinates of an SBU from a pdb file"""
-
-        filename = filename + ".pdb"
-        pdbfile = open(filename)
-        pdblines = pdbfile.readlines()
-        for line in pdblines:
-            if line.lower().startswith('remark'):
-                if line[7:15].strip().lower().startswith('index'):
-                    self.index = int(line[16:].strip())
-                if line[7:15].strip().lower().startswith('name'):
-                    self.name = line[16:].strip()
-            if line.lower().startswith('atom'):
-                self.atomlabel.append(line[12:16].strip())
-                self.coordinates.append([float(line[30:38]), \
-                    float(line[38:46]), float(line[47:54])])
-        pdbfile.close()
-
 
 class Structure(object):
     """
@@ -2031,64 +1943,6 @@ def determinant(matrix):
     det = a*e*i + b*f*g + c*d*h - c*e*g - b*d*i - a*f*h
     return det
 
-def coord_matrix(atom, coord):
-    """
-    generate a coordination matrix for a list of x,y,z coordinates
-    """
-    connect = np.matrix(np.zeros((len(coord),len(coord))))
-    bonding = []
-    numbonds = []
-    for i in range(len(coord)):
-        bonding.append([])
-        numbonds.append(0)
-        for j in range(len(coord)):
-            dist = length(coord[i],coord[j])
-            tol = bond_tolerance(atom[i], atom[j])
-            if (i != j) and (dist <= tol):
-                connect[i,j] = dist
-                connect[j,i] = dist
-                numbonds[i] += 1
-                bonding[i].append(j)
-            else:
-                connect[i,j] = 0.
-                connect[j,i] = 0.
-    return (connect, bonding, numbonds)
-
-def bond_tolerance(atom1, atom2):
-    """
-    returns a tolerance value for atom - atom distances
-    case specific
-    """
-    # This function will need some elaboration
-    # TODO(pboyd): these conditions are not robust and
-    # should be changed when the code becomes bigger
-    if("O" in [atom1,atom2])and("C" in [atom1,atom2]):
-        return 1.6
-    # G is the metal - metal bond for linked chains
-    elif("G" in (atom1,atom2) and 
-        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
-        return 1.35
-    elif("X" in (atom1, atom2) and 
-        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
-        return 0.97
-    elif("G" in (atom1,atom2) or "X" in (atom1, atom2))and \
-        (("Y" in (atom1,atom2))or("Z" in (atom1,atom2))):
-        return 1.1
-    elif("Y" in (atom1,atom2))and("G" not in (atom1,atom2) 
-            or "X" not in (atom1,atom2)):
-        return 0.
-    elif("Z" in (atom1,atom2))and("G" not in (atom1,atom2) 
-            or "X" not in (atom1,atom2)):
-        return 0.
-    elif("Br" in (atom1,atom2))and("J" in (atom1,atom2)):
-        return 2.0
-    elif("I" in (atom1,atom2))and("J" in (atom1,atom2)):
-        return 2.5
-    elif("Cl" in (atom1,atom2))and("J" in (atom1,atom2)):
-        return 1.8 
-    else:
-        return 1.6
-
 def length(coord1, coord2=None):
     """ 
     Returns the length between two vectors.
@@ -2333,7 +2187,7 @@ def main():
     open('debug.xyz', 'w')
     options = Options()
     sbutest = Database("fortesting", options)
-    genstruct = Generate(sbutest)
-    genstruct.database_generation()
+    #genstruct = Generate(sbutest)
+    #genstruct.database_generation()
 if __name__ == '__main__':
     main()
