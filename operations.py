@@ -86,3 +86,37 @@ def cross(vector1, vector2):
     v2 = (vector1[0] * vector2[1]) - (vector1[1] * vector2[0])
     return [v0, v1, v2]
 
+def bond_tolerance(atom1, atom2):
+    """
+    returns a tolerance value for atom - atom distances
+    case specific
+    """
+    # This function will need some elaboration
+    # TODO(pboyd): these conditions are not robust and
+    # should be changed when the code becomes bigger
+    if("O" in [atom1,atom2])and("C" in [atom1,atom2]):
+        return 1.6
+    # G is the metal - metal bond for linked chains
+    elif("G" in (atom1,atom2) and 
+        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
+        return 1.35
+    elif("X" in (atom1, atom2) and 
+        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
+        return 0.97
+    elif("G" in (atom1,atom2) or "X" in (atom1, atom2))and \
+        (("Y" in (atom1,atom2))or("Z" in (atom1,atom2))):
+        return 1.1
+    elif("Y" in (atom1,atom2))and("G" not in (atom1,atom2) 
+            or "X" not in (atom1,atom2)):
+        return 0.
+    elif("Z" in (atom1,atom2))and("G" not in (atom1,atom2) 
+            or "X" not in (atom1,atom2)):
+        return 0.
+    elif("Br" in (atom1,atom2))and("J" in (atom1,atom2)):
+        return 2.0
+    elif("I" in (atom1,atom2))and("J" in (atom1,atom2)):
+        return 2.5
+    elif("Cl" in (atom1,atom2))and("J" in (atom1,atom2)):
+        return 1.8 
+    else:
+        return 1.6
