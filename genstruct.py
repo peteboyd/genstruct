@@ -95,8 +95,9 @@ class Generate(object):
                 self.unique_bondtypes(basestructure)
                 self.exhaustive_generation(basestructure)
                 # add functional groups to built MOFs
-                if len(self.complete_mofs) > 0:
-                    self.apply_functional_groups()
+                #if len(self.complete_mofs) > 0:
+                #    info("Applying functional groups...")
+                #    self.apply_functional_groups()
 
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
@@ -107,7 +108,27 @@ class Generate(object):
         """
         # determine which hydrogens to replace, what their
         # connecting atoms are (Important for overlap considerations)
-        
+        # Tally which SBU's in the MOF have hydrogens to replace
+        sbus_withH = [sbu for mof in self.complete_mofs for 
+                sbu in mof.sbu_array if len(sbu.hydrogens) > 0]
+        dic = {}
+        # isolate unique SBUs
+        for sbu in sbus_withH:
+            dic[sbu.index] = sbu
+
+        sbus_withH = dic.values()
+        # generate a set of hydrogen replacements for each sbu in SBUs
+        # to a limit of 1000.  After this many, just quit.
+        hydrogenlist = []
+        for i in sbus_withH:
+            #itertools chain, combinations
+            s = i.hydrogens
+            hydrogenlist = \
+            sorted(itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s)+1)))
+        # combine 
+        itertools.product(hydrogens)
+        print hydrogenlist
+
     def determine_topology(self, indices):
         """
         Returns a list of topological names which appear across all
@@ -1016,20 +1037,6 @@ class Structure(object):
         iangle = int(strlist[4])
         # add sbu1 to sbu2
         self.add_new_sbu(sbu1, bond1, sbutype2, bond2, iangle)
-
-    def bad_addition(self, string, struct):
-        """apply checks to see if the new addition is valid"""
-        strlist = string.split("-")
-
-        # assumes sbu2 is the newest addition to the MOF
-        sbu1 = int(strlist[0])
-        bond1 = int(strlist[1])
-        sbu2 = len(self.mof) - 1
-        bond2 = int(strlist[3])
-        # checks overlap over all atoms
-        if self.overlap_allcheck():
-            return True
-        return False
 
     def sbu_check(self, sbu, tol=None):
         """
@@ -2186,8 +2193,9 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("fortesting", options)
-    #genstruct = Generate(sbutest)
-    #genstruct.database_generation()
+    sbutest = Database("wilmerdatabase", options)
+    genstruct = Generate(sbutest)
+    genstruct.database_generation()
+
 if __name__ == '__main__':
     main()
