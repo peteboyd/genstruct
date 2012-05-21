@@ -120,14 +120,49 @@ class Generate(object):
         # generate a set of hydrogen replacements for each sbu in SBUs
         # to a limit of 1000.  After this many, just quit.
         hydrogenlist = []
-        for i in sbus_withH:
+        for sbu in sbus_withH:
             #itertools chain, combinations
-            s = i.hydrogens
-            hydrogenlist = \
-            sorted(itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s)+1)))
-        # combine 
-        itertools.product(hydrogens)
-        print hydrogenlist
+            s = sbu.hydrogens
+            templist = \
+            sorted(itertools.chain.from_iterable(
+                itertools.combinations(s, r) for r in range(len(s)+1)))
+            templist = [i for i in templist if i]
+            hydrogenlist.append(templist)
+    
+        # itertools.product ensures the first entry is from the first 
+        # list and the second from the second list.  This way we can 
+        # track which SBU's hydrogens we are manipulating.
+        combine = [i for i in itertools.product(*hydrogenlist)]
+
+        # randomly choose one of the selectons of H atoms, then
+        # delete it from the list to ensure it will not be selected
+        # again.
+        ignore = []; choicecount=0
+        done = False
+        while not done:
+            choicecount += 1
+            Hind = randrange(len(combine))
+            while Hind in ignore:
+                Hind = randrange(len(combine))
+            select_H = combine[Hind]
+            ignore.append(Hind)
+            replace_dic = {}
+            for idx, sbu in enumerate(sbus_withH):
+                replace_dic[sbu.index] = select_H[idx]
+            # select a structure from self.complete_mofs
+
+            for idx, sbu in enumerate(self.complete_mofs[0]):
+                coordinates = self.complete_mofs[0].coordinates[idx]
+                atoms = self.complete_mofs[0].atoms[idx]
+                # do a functional group swap
+
+                # check for overlaps
+            if len(self.complete_mofs) > 5:
+                done = True
+            elif choicecount >= 1000:
+                done = True
+            done = True
+        print len(combine)
 
     def determine_topology(self, indices):
         """
