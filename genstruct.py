@@ -17,6 +17,7 @@ import os
 import io
 import itertools
 import ConfigParser
+import functional
 from config import Options
 from operations import *
 from numpy import array
@@ -67,6 +68,8 @@ class Generate(object):
         self.bondrules = []
         # counter for number of structures generated
         self.mofcount = 0
+        # functionalization
+        self.functional = functional.Functional_groups()
 
     def gen_dir(self):
         """creates directory for putting new MOF files"""
@@ -95,9 +98,9 @@ class Generate(object):
                 self.unique_bondtypes(basestructure)
                 self.exhaustive_generation(basestructure)
                 # add functional groups to built MOFs
-                #if len(self.complete_mofs) > 0:
-                #    info("Applying functional groups...")
-                #    self.apply_functional_groups()
+                if len(self.complete_mofs) > 0:
+                    info("Applying functional groups...")
+                    self.apply_functional_groups()
 
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
@@ -108,15 +111,19 @@ class Generate(object):
         """
         # determine which hydrogens to replace, what their
         # connecting atoms are (Important for overlap considerations)
-        # Tally which SBU's in the MOF have hydrogens to replace
         sbus_withH = [sbu for mof in self.complete_mofs for 
                 sbu in mof.sbu_array if len(sbu.hydrogens) > 0]
+
         dic = {}
         # isolate unique SBUs
         for sbu in sbus_withH:
             dic[sbu.index] = sbu
 
         sbus_withH = dic.values()
+
+        # return if no hydrogens available for functional swapping
+        if len(sbus_withH) == 0:
+            return
         # generate a set of hydrogen replacements for each sbu in SBUs
         # to a limit of 1000.  After this many, just quit.
         hydrogenlist = []
@@ -133,36 +140,126 @@ class Generate(object):
         # list and the second from the second list.  This way we can 
         # track which SBU's hydrogens we are manipulating.
         combine = [i for i in itertools.product(*hydrogenlist)]
-
-        # randomly choose one of the selectons of H atoms, then
-        # delete it from the list to ensure it will not be selected
-        # again.
-        ignore = []; choicecount=0
-        done = False
-        while not done:
-            choicecount += 1
-            Hind = randrange(len(combine))
-            while Hind in ignore:
+        
+        groups = self.functional.atoms.keys()
+        groups.sort()
+        # Iterate through the functional groups in self.functional
+        for group in groups:
+            # Tally which SBU's in the MOF have hydrogens to replace
+            mofnum = len(self.complete_mofs)
+            ignore = []; choicecount=0
+            done = False
+            while not done:
+                choicecount += 1
                 Hind = randrange(len(combine))
-            select_H = combine[Hind]
-            ignore.append(Hind)
-            replace_dic = {}
-            for idx, sbu in enumerate(sbus_withH):
-                replace_dic[sbu.index] = select_H[idx]
-            # select a structure from self.complete_mofs
+                while Hind in ignore:
+                    Hind = randrange(len(combine))
+                    if len(ignore) == len(combine):
+                        done = True
+                        break
+                select_H = combine[Hind]
+                ignore.append(Hind)
+                replace_dic = {}
+                for idx, sbu in enumerate(sbus_withH):
+                    replace_dic[sbu.index] = select_H[idx]
+                # select a structure from self.complete_mofs
+                rand = randrange(len(self.complete_mofs))
+                newstr = copy.deepcopy(self.complete_mofs[rand])
+                ovlp = False
+                for idx, sbu in enumerate(newstr.mof):
+                    if sbu.index in replace_dic.keys():
+                        # Go through each hydrogen listed in 
+                        # replace_dic and swap for the functional group
+                        for hydrogen in replace_dic[sbu.index]:
+                            connect_atom = sbu.hydrogens_connect[
+                                sbu.hydrogens.index(hydrogen)]
+                            # do a functional group swap
+                            fnlcoords = self.functional_swap(newstr,
+                                    idx, hydrogen, connect_atom, group)
+                            # append to MOF
+                            newstr.coordinates[idx] = \
+                                    newstr.coordinates[idx] + \
+                                    fnlcoords[:]
+                            newstr.atoms[idx] = newstr.atoms[idx] + \
+                                self.functional.atoms[group]
+                            # check for overlaps
+                            if self.functional_overlap(idx, hydrogen,
+                                    connect_atom, group,
+                                    self.functional.atoms[group],
+                                    fnlcoords, newstr):
+                                ovlp = True
+                                break
+                                #TODO(pboyd): include a rotation scheme
+                            else:
+                                # append the fractional coordinates to
+                                # the mof to include in overlap calcs
+                                fcoords = [newstr.fractional(coord) for
+                                        coord in fnlcoords]
+                                newstr.fcoords[idx] = \
+                                    newstr.fcoords[idx] + fcoords
+                    if ovlp:
+                        break
 
-            for idx, sbu in enumerate(self.complete_mofs[0]):
-                coordinates = self.complete_mofs[0].coordinates[idx]
-                atoms = self.complete_mofs[0].atoms[idx]
-                # do a functional group swap
+                if not ovlp:
+                    mofnum += 1
+                    # remove all the hydrogens
+                    for idx, sbu in enumerate(newstr.mof):
+                        if sbu.index in replace_dic.keys():
+                            sortedH = list(replace_dic[sbu.index])
+                            sortedH.sort()
+                            [newstr.coordinates[idx].pop(hydrogen)
+                             for hydrogen in reversed(sortedH)]
+                            [newstr.atoms[idx].pop(hydrogen) for 
+                             hydrogen in reversed(sortedH)]
+                    self.finalize(newstr, group)
+                    # write the file
+                if mofnum > 5:
+                    done = True
+                elif choicecount >= 1000:
+                    done = True
 
-                # check for overlaps
-            if len(self.complete_mofs) > 5:
-                done = True
-            elif choicecount >= 1000:
-                done = True
-            done = True
-        print len(combine)
+    def functional_overlap(self, sbu, hydrogen, connect_atom, 
+                           group, atoms, coordinates, struct):
+        """
+        Overlap determined by transposing MOF coordinates to the 
+        minimum image of the centre of mass of the functional group
+        then performing a distance check with cdist.
+        """
+        # tolerance for distance overlap in angstroms
+        tol = 2.
+        
+        fnlconnect = self.functional.connect_points[group]
+        fnlcom = centre_of_mass(atoms, coordinates)
+
+        # the fractional coordinates are stored
+        mof_coords = struct.min_img_shift(fnlcom)
+
+        overlap = []
+        for idx, coords in enumerate(mof_coords):
+            distmat = distance.cdist(coordinates, coords)
+            if idx == sbu:
+                check = [(i, j) for i in range(len(distmat)) for
+                        j in range(len(distmat[i])) 
+                        if distmat[i][j] <= tol and
+                        i != fnlconnect and
+                        j != hydrogen and j != connect_atom]
+            else:
+                check = [(i,j) for i in range(len(distmat)) for 
+                  j in range(len(distmat[i])) if 
+                  distmat[i][j] <= tol]
+
+            overlap = overlap + check
+        # apply the conditions of the specific hydrogen and connect atom
+        # for the sbu it's attached to. (HARD because fractional coords 
+        # are not listed according to SBU)
+                  #if i != fnlconnect 
+                  #and j != hydrogen 
+                  #and j != connect_atom]
+        
+        if len(overlap) > 0:
+            return True
+
+        return False
 
     def determine_topology(self, indices):
         """
@@ -204,6 +301,40 @@ class Generate(object):
             # line will remove multiple copies of the same index.
             newarray.append([j for j in array if j.index == i][0])
         return newarray
+
+    def functional_swap(self, struct, idx, hydrogen, connect_atom, group):
+        """ switch a hydrogen for a functional group"""
+
+        sbu = struct.mof[idx]
+        hyd_coord = struct.coordinates[idx][hydrogen]
+        connect_coord = struct.coordinates[idx][connect_atom]
+        hyd_vector = vect_sub(hyd_coord, connect_coord)
+        hyd_vector =  normalize(hyd_vector)
+        fnl_vector = self.functional.connect_vector[group]
+
+        axis = rotation_axis(fnl_vector, hyd_vector)
+        angle = calc_angle(hyd_vector, fnl_vector)
+        coordinates = self.rotation(axis, angle, connect_coord, group)
+        atm = self.functional.connect_points[group]
+        shift = vect_sub(connect_coord, 
+                self.functional.coordinates[group][atm])
+        bond = scalar_mult(self.functional.bond_length[group], 
+                           normalize(hyd_vector))
+        shift = vect_add(shift, bond)
+
+        return [vect_add(i, shift) for i in coordinates]
+    
+    def rotation(self, axis, angle, rotpoint, group):
+        """
+        rotates a functional group to be properly added to the SBU
+        """
+        atm = self.functional.connect_points[group]
+        rotpoint = self.functional.coordinates[group][atm]
+        R = rotation_matrix(axis, angle)
+        C = matrx_mult(rotpoint, (matrx_sub(zeros3, R)))
+        coordinates = [vect_add(matrx_mult(i, R), C) for i in 
+                         self.functional.coordinates[group]]
+        return coordinates
 
     def apply_strings(self, dataset, indices):
         """
@@ -400,7 +531,10 @@ class Generate(object):
         while not done:
             #apply the string
             for struct in self.moflib:
-                string = self.strings[iterstring]
+                try:
+                    string = self.strings[iterstring]
+                except:
+                    done = True
                 if self.valid_string(string, struct):
                     copystruct = copy.deepcopy(struct)
                     sbu = len(copystruct.mof) 
@@ -425,25 +559,15 @@ class Generate(object):
                         if len(set(sets)) < len(set(base)):
                             pass
                         else:
-                            #///////////////////////////////////////
-                            # TODO(pboyd):put into separate function
                             copystruct.final_coords()
                             copystruct.mof_reorient()
                             copystruct.get_cartesians()
-                            self.mofcount += 1
-                            pdbfile = self.outdir + "%05i_structure"%(
-                                    self.mofcount)
-                            for sbu in copystruct.sbu_array:
-                                pdbfile += "_%i"%(sbu.index)
-                            pdbfile += "_%s"%(copystruct.name)
-                            copystruct.write_pdb(pdbfile)
+                            self.finalize(copystruct, 0)
                             # export the MOF for functional group
                             # placement
                             self.complete_mofs.append(copy.deepcopy(copystruct))
-                            #///////////////////////////////////////
                             info("Structure Generated!")
                             copystruct.origins = zeros3[:]
-                            #copystruct.xyz_debug()
                             structcount += 1
 
                     # Give up if number of structures becomes too big.
@@ -469,6 +593,18 @@ class Generate(object):
 
             #iterate the string
             iterstring += 1
+
+    def finalize(self, struct, idx):
+        """ write the MOF file etc..."""
+
+        self.mofcount += 1
+        pdbfile = self.outdir + "%06i_structure"%(self.mofcount)
+        for sbu in struct.sbu_array:
+            pdbfile += "_%i"%(sbu.index)
+        pdbfile += "_%i"%(idx)
+        pdbfile += "_%s"%(struct.name)
+        struct.write_pdb(pdbfile)
+        return
 
     def valid_struct(self, string, ind):
         """
@@ -1543,13 +1679,10 @@ class Structure(object):
         B = self.cell[1]
         C = self.cell[2]
         finals = []
-        for i in self.fcoords:
-            vect = zeros1[:]
-            vect = vect_add(vect, scalar_mult(i[0], A))
-            vect = vect_add(vect, scalar_mult(i[1], B))
-            vect = vect_add(vect, scalar_mult(i[2], C))
-            finals.append(vect)
-
+        for sbu in self.fcoords:
+            carts = [matrx_mult(fcoord, self.cell) for fcoord
+                    in self.fcoords[sbu]]
+            finals = finals + carts
         return finals
 
 
@@ -1583,7 +1716,7 @@ class Structure(object):
         atmcnt = 0
         for isbu in range(len(self.coordinates)):
             for icoord in range(len(self.coordinates[isbu])):
-                coord = matrx_mult(self.fcoords[atmcnt], self.cell)
+                coord = matrx_mult(self.fcoords[isbu][icoord], self.cell)
                 self.coordinates[isbu][icoord] = coord[:]
                 atmcnt += 1
 
@@ -1602,8 +1735,9 @@ class Structure(object):
                 self.connect_points[sbu][ibond] = vect_add(shiftvect, bond)
             for icoord, coord in enumerate(self.coordinates[sbu]):
                 self.coordinates[sbu][icoord] = vect_add(shiftvect, coord)
-        self.fcoords = [self.fractional(coord) for sbu in
-                        self.coordinates for coord in sbu]
+            sbufracts = [self.fractional(coord) for coord in 
+                            self.coordinates[sbu]]
+            self.fcoords.append(sbufracts)
         return
 
     def fractional(self, vector):
@@ -1624,10 +1758,6 @@ class Structure(object):
         first cell vector points in the x cartesian axis and the 
         second cell vector points in the xy cartesian plane
         """
-
-        #FIXME(pboyd): change all coordinates to fractional,
-        # rotate the pbc cell and the connect_vectors, anglevect
-        # then re-apply the fractional coordinates.
 
         xaxis = [1.,0.,0.]
         yaxis = [0.,1.,0.]
@@ -1653,8 +1783,11 @@ class Structure(object):
         if self.cell[2][2] < 0.:
             # invert the cell
             self.cell[2][2] = -1. * self.cell[2][2]
-            self.fcoords = [vect_sub([1., 1., 1.], i) 
-                            for i in self.fcoords]
+            for sbu in range(len(self.fcoords)):
+                self.fcoords[sbu] = [vect_sub([1.,1.,1.], i) for i
+                        in self.fcoords[sbu]]
+        # re-invert cell (is it necessary to invert before this?)
+        self.invert_cell()
         return
 
     def saturated(self):
@@ -1681,6 +1814,25 @@ class Structure(object):
             self.connectivity[sbu1][bond1] = -1*sbu2
             self.connectivity[sbu2][bond2] = -1*sbu1
         
+    def min_img_shift(self, vector):
+        """
+        Shifts all coordinates of a MOF to within the minimum
+        image of a vector.
+        """
+        fvect = matrx_mult(vector, self.icell)
+        mof_coords = []
+        for sbu in range(len(self.fcoords)):
+            temp_fracts = []
+            for fcoord in self.fcoords[sbu]:
+                diff = vect_sub(fvect, fcoord)
+                f = [fcoord[i] + round(diff[i]) 
+                        for i in range(3)]
+                temp_fracts.append(f)
+            mof_coords.append([matrx_mult(fcoord, self.cell) for
+                fcoord in temp_fracts])
+        # convert temp_fracts to cartesians
+        return mof_coords
+
     def min_img(self, vector):
         """
         applies periodic boundary conditions to a vector
