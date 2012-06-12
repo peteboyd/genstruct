@@ -27,10 +27,8 @@ from random import random, uniform, randrange, choice
 from datetime import date
 from logging import warning, debug, error, info, critical
 from scipy.spatial import distance
-# Constants
-
-RAD2DEG = 180./np.pi
-DEG2RAD = np.pi/180.
+# modules related to symmetry finding
+from atoms import Atoms
 
 class Generate(object):
     """
@@ -98,9 +96,9 @@ class Generate(object):
                 self.unique_bondtypes(basestructure)
                 self.exhaustive_generation(basestructure)
                 # add functional groups to built MOFs
-                if len(self.complete_mofs) > 0:
-                    info("Applying functional groups...")
-                    self.apply_functional_groups()
+                #if len(self.complete_mofs) > 0:
+                #    info("Applying functional groups...")
+                #    self.apply_functional_groups()
 
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
@@ -539,7 +537,8 @@ class Generate(object):
                     copystruct = copy.deepcopy(struct)
                     sbu = len(copystruct.mof) 
                     copystruct.apply_string(string)
-                    if copystruct.overlap_allcheck():
+                    #if copystruct.overlap_allcheck():
+                    if copystruct.overlap_sbucheck(sbu):
                         pass
                     else:
                         bondtype = self.determine_bondtype(
@@ -596,6 +595,20 @@ class Generate(object):
 
     def finalize(self, struct, idx):
         """ write the MOF file etc..."""
+        # TODO(pboyd): check for dependencies - need spglib, otherwise
+        # write to pdb file
+        coords = [struct.coordinates[sbu][coord] for sbu in 
+                range(len(struct.coordinates)) for coord in 
+                range(len(struct.coordinates[sbu]))]
+
+        atoms = [struct.atoms[sbu][atom] for sbu in 
+                range(len(struct.atoms)) for atom in 
+                range(len(struct.atoms[sbu]))]
+
+        # formatting class for calling the symmetry routines
+        # TODO(pboyd): this is a bit of a hack job - should clean this.
+        ASEstruct = Atoms(symbols=atoms, positions=coords, cell=struct.cell, 
+                  pbc=True)
 
         self.mofcount += 1
         pdbfile = self.outdir + "%06i_structure"%(self.mofcount)
@@ -603,7 +616,10 @@ class Generate(object):
             pdbfile += "_%i"%(sbu.index)
         pdbfile += "_%i"%(idx)
         pdbfile += "_%s"%(struct.name)
-        struct.write_pdb(pdbfile)
+        cif = CIF(ASEstruct)
+        cif.write_cif(pdbfile)
+
+        #struct.write_pdb(pdbfile)
         return
 
     def valid_struct(self, string, ind):
@@ -661,9 +677,12 @@ class Generate(object):
         if struct.name == "tbo":
             if len(struct.connectivity) > 13:
                 return False
-        #elif struct.name == "nbo":
-        #    if len(struct.connectivity) > 9:
-        #        return False
+        elif struct.name == "nbo":
+            if len(struct.connectivity) > 9:
+                return False
+        elif struct.name == "mtn":
+            if len(struct.connectivity) > 9:
+                return False
         inter_metal_test = [sbu.connect_points.has_key("intermetal")
                 for sbu in sbu_list]
         pcu_metal_test = [sbu.connect_points.has_key("metallic") and \
@@ -1081,6 +1100,8 @@ class SBU(object):
                 self.coordinates[name][icoord] = vect_sub(xyz, 
                                                 self.COM[name])
 
+            self.COM[name] = zeros1[:]
+
     def xyz_debug(self, filename=None):
         """
         Writes all the bonding and atom info to an xyz file
@@ -1133,6 +1154,7 @@ class Structure(object):
         self.vectorflag = []
 
         self.connect_angles = []
+        self.COM = []
         self.store_angles()
         # keep track of all the SBUs
         self.mof = []
@@ -1315,15 +1337,19 @@ class Structure(object):
         self.connect_sym
         self.connectivity
         self.vectorflag
+        self.COM
         """
         # check for default or metallic names
         size = len(self.connectivity)
         if name == "metallic":
             self.coordinates.append(self.sbu_array[ind].coordinates[name][:])
             self.atoms.append(self.sbu_array[ind].atom_label[name][:])
+            self.COM.append(self.sbu_array[ind].COM[name][:])
         else:
             self.coordinates.append(self.sbu_array[ind].coordinates["default"][:])
             self.atoms.append(self.sbu_array[ind].atom_label["default"][:])
+            self.COM.append(self.sbu_array[ind].COM["default"][:])
+
         nconnect = len(self.sbu_array[ind].connect_vector[name])
         self.connectivity.append([None]*nconnect)
         self.vectorflag.append([name]*nconnect)
@@ -1485,16 +1511,51 @@ class Structure(object):
                         bonding_dic.setdefault(pair[0],[]).append([sbu2,pair[1]])
         return bonding_dic
 
+    def overlap_sbucheck(self, sbu):
+        """
+        Checks for pairwise atom overlaps between a particular SBU and
+        the rest of the MOF
+        """
+        tol = 1.3
+
+        coords = self.coordinates[sbu]
+        # COM IS RELATED to a NAME>>>>.
+        # SBU.coordinates is not shifted, only self.coordinates!!!
+        com = self.COM[sbu]
+        if self.pbcindex == 2:
+            remaining_coords = self.min_img_shift(com, excl=sbu)
+            # convert to 1d array of coordinates
+            remaining_coords = [coord for i in 
+                                range(len(remaining_coords))
+                                for coord in remaining_coords[i]]
+            write_xyz("history", [atom for sbu in range(len(self.atoms)) 
+                for atom in self.atoms[sbu]], 
+                    remaining_coords + coords, self.cell)
+        else:
+            # TODO(pboyd): probably should have some kind of minimum
+            # image shift if less than three periodic boundaries.
+            remaining_coords = [self.coordinates[sbus][coord] for 
+                    sbus in range(len(self.coordinates)) for coord
+                    in range(len(self.coordinates[sbus])) if sbus != sbu]
+
+        distmat = distance.cdist(coords, remaining_coords)
+
+        check = [(i, j) for i in range(len(distmat)) for j in
+                range(len(distmat[i])) if distmat[i][j] <= tol]
+        if len(check) > 0:
+            print "OVERFUCKINGLAP!!!!!!"
+            return True
+        return False
+
     def overlap_allcheck(self):
         """
         checks for all pairwise atomistic overlaps in a growing MOF
         """
         # tolerance in angstroms
-        tol = 0.3 
-        # TODO(pboyd): include minimum image conv. when determining
-        # distances.
+        tol = 1.0 
         for idx1 in range(len(self.connectivity)-1):
             for idx2 in range(idx1+1, len(self.connectivity)):
+
                 distmat = distance.cdist(self.coordinates[idx1], 
                                         self.coordinates[idx2])
                 check = [(i,j) for i in range(len(distmat)) for 
@@ -1588,21 +1649,21 @@ class Structure(object):
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
         # TODO(pboyd): add option to debug and apply if true.
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
@@ -1651,7 +1712,7 @@ class Structure(object):
         # origin of rotation
         rotpoint = centre_of_mass(self.atoms[sbu2], self.coordinates[sbu2])
 
-        while (np.allclose(axis, np.zeros(3), atol=1e-4)):
+        while (np.allclose(axis, zeros1, atol=1e-4)):
             randaxis = normalize([random(), random(), random()])
             randangle = uniform(0., np.pi/3.)
             self.sbu_rotation(sbu2, rotpoint, randaxis, randangle)
@@ -1670,6 +1731,7 @@ class Structure(object):
                               in self.connect_points[sbu2]]
         self.coordinates[sbu2] = [vect_add(i,shiftvector) for i in
                             self.coordinates[sbu2]]
+        self.COM[sbu2] = vect_add(self.COM[sbu2],shiftvector)
 
     def getfinals(self):
         """
@@ -1706,6 +1768,7 @@ class Structure(object):
         # connect_vector and anglevect are ALWAYS centered at the origin!!
         self.connect_vector[sbu] = [matrx_mult(i, R) for i in 
                                     self.connect_vector[sbu]]
+        self.COM[sbu] = vect_add(matrx_mult(self.COM[sbu], R), C)
         self.connect_align[sbu] = [matrx_mult(i, R) for i 
                                     in self.connect_align[sbu]]
     def get_cartesians(self):
@@ -1739,6 +1802,14 @@ class Structure(object):
                             self.coordinates[sbu]]
             self.fcoords.append(sbufracts)
         return
+
+
+    def get_fractionals(self):
+        """ Store fractional coordinates. """
+        for sbu in range(len(self.coordinates)):
+            sbufracts = [self.fractional(coord) for coord in 
+                            self.coordinates[sbu]]
+            self.fcoords.append(sbufracts)
 
     def fractional(self, vector):
         
@@ -1814,7 +1885,7 @@ class Structure(object):
             self.connectivity[sbu1][bond1] = -1*sbu2
             self.connectivity[sbu2][bond2] = -1*sbu1
         
-    def min_img_shift(self, vector):
+    def min_img_shift(self, vector, excl=None):
         """
         Shifts all coordinates of a MOF to within the minimum
         image of a vector.
@@ -1822,14 +1893,15 @@ class Structure(object):
         fvect = matrx_mult(vector, self.icell)
         mof_coords = []
         for sbu in range(len(self.fcoords)):
-            temp_fracts = []
-            for fcoord in self.fcoords[sbu]:
-                diff = vect_sub(fvect, fcoord)
-                f = [fcoord[i] + round(diff[i]) 
-                        for i in range(3)]
-                temp_fracts.append(f)
-            mof_coords.append([matrx_mult(fcoord, self.cell) for
-                fcoord in temp_fracts])
+            if sbu != excl:
+                temp_fracts = []
+                for fcoord in self.fcoords[sbu]:
+                    diff = vect_sub(fvect, fcoord)
+                    f = [fcoord[i] + round(diff[i]) 
+                         for i in range(3)]
+                    temp_fracts.append(f)
+                mof_coords.append([matrx_mult(fcoord, self.cell) for
+                    fcoord in temp_fracts])
         # convert temp_fracts to cartesians
         return mof_coords
 
@@ -1992,8 +2064,11 @@ class Structure(object):
         self.cell[self.pbcindex] = vect
         self.ncell[self.pbcindex] = normalize(vect)
         if self.pbcindex == 2:
+            # store all existing SBUs as fractional coordinates
+            # Note: this may slow up the algorithm
             self.cellparams()
             self.invert_cell()
+            self.get_fractionals()
 
     def plane_test(self, vector, tol=None):
         """
@@ -2137,19 +2212,6 @@ def determinant(matrix):
     det = a*e*i + b*f*g + c*d*h - c*e*g - b*d*i - a*f*h
     return det
 
-def length(coord1, coord2=None):
-    """ 
-    Returns the length between two vectors.
-    If only one vector is specified, it returns
-    the length of that vector from the origin
-    """
-    if coord2 is not None:
-        coord2 = coord2
-    else:
-        coord2 = zeros1[:]
-    dist = distance.cdist([coord1], [coord2], 'euclidean')[0][0]
-    return dist 
-
 def rotation_axis(vect1, vect2):
     """
     axis of rotation for two vectors (90 degrees from both)
@@ -2157,16 +2219,6 @@ def rotation_axis(vect1, vect2):
     vect1 = normalize(vect1)
     vect2 = normalize(vect2)
     return normalize(cross(vect1, vect2))
-
-def calc_angle(vect1, vect2):
-    """ determines angle between vector1 and vector2"""
-    dot12 = dot(vect1, vect2) 
-    dist11 = length(vect1)
-    dist22 = length(vect2)
-    # clamps the angle coefficient to a min or max of -1, 1 so no 
-    # error is returned when calculating the acos.
-    angle_coefficient =  min(max(dot12/(dist11*dist22), -1.0),1.0)
-    return math.acos(angle_coefficient)
 
 def rotation_matrix(axis, angle):
     """
@@ -2380,7 +2432,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("wilmerdatabase", options)
+    sbutest = Database("fortesting4", options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 
