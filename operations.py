@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import math
+from scipy.spatial import distance
 
 """
 Module to accompany genstruct.  This will contain the operations needed
@@ -7,6 +8,10 @@ to reproduce numpy operations.  The idea is to eventually phase out
 numpy from genstruct.
 """
 
+# Constants
+
+RAD2DEG = 180./math.pi
+DEG2RAD = math.pi/180.
 zeros3 = [[0.,0.,0.],[0.,0.,0.],[0.,0.,0.]]
 zeros1 = [0.,0.,0.]
 zeros6 = [0.,0.,0.,0.,0.,0.]
@@ -120,3 +125,27 @@ def bond_tolerance(atom1, atom2):
         return 1.8 
     else:
         return 1.6
+
+def length(coord1, coord2=None):
+    """ 
+    Returns the length between two vectors.
+    If only one vector is specified, it returns
+    the length of that vector from the origin
+    """
+    if coord2 is not None:
+        coord2 = coord2
+    else:
+        coord2 = zeros1[:]
+    dist = distance.cdist([coord1], [coord2], 'euclidean')[0][0]
+    return dist 
+
+def calc_angle(vect1, vect2):
+    """ determines angle between vector1 and vector2"""
+    dot12 = dot(vect1, vect2) 
+    dist11 = length(vect1)
+    dist22 = length(vect2)
+    # clamps the angle coefficient to a min or max of -1, 1 so no 
+    # error is returned when calculating the acos.
+    angle_coefficient =  min(max(dot12/(dist11*dist22), -1.0),1.0)
+    return math.acos(angle_coefficient)
+
