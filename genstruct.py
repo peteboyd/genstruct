@@ -541,6 +541,7 @@ class Generate(object):
                     if copystruct.overlap_sbucheck(sbu):
                         pass
                     else:
+                        pbctest = copystruct.pbcindex == 1
                         bondtype = self.determine_bondtype(
                                 string, copystruct)
                         copystruct.sbu_check(sbu)
@@ -548,7 +549,11 @@ class Generate(object):
                         self.bondhist.append(copystruct.bondhist)
                         copystruct.stringhist.append(string)
                         self.moflib.append(copystruct)
-                        
+                        # fix for snurr's big NU100 building units
+                        # TODO(pboyd): make this less time consuming
+                        if pbctest and copystruct.pbcindex == 2:
+                            for indsbu in range(len(copystruct.mof)):
+                                copystruct.sbu_check(indsbu)
                     if copystruct.saturated() and copystruct.complete_box():
                         # check to see if all SBU's are included in 
                         # the structure.
@@ -558,9 +563,9 @@ class Generate(object):
                         if len(set(sets)) < len(set(base)):
                             pass
                         else:
-                            copystruct.final_coords()
-                            copystruct.mof_reorient()
-                            copystruct.get_cartesians()
+                            #copystruct.final_coords()
+                            #copystruct.mof_reorient()
+                            #copystruct.get_cartesians()
                             self.finalize(copystruct, 0)
                             # export the MOF for functional group
                             # placement
@@ -595,8 +600,6 @@ class Generate(object):
 
     def finalize(self, struct, idx):
         """ write the MOF file etc..."""
-        # TODO(pboyd): check for dependencies - need spglib, otherwise
-        # write to pdb file
         coords = [struct.coordinates[sbu][coord] for sbu in 
                 range(len(struct.coordinates)) for coord in 
                 range(len(struct.coordinates[sbu]))]
@@ -607,8 +610,8 @@ class Generate(object):
 
         # formatting class for calling the symmetry routines
         # TODO(pboyd): this is a bit of a hack job - should clean this.
-        ASEstruct = Atoms(symbols=atoms, positions=coords, cell=struct.cell, 
-                  pbc=True)
+        ASEstruct = Atoms(symbols=atoms, positions=coords, 
+                cell=struct.cell, pbc=True)
 
         self.mofcount += 1
         pdbfile = self.outdir + "%06i_structure"%(self.mofcount)
@@ -676,6 +679,9 @@ class Generate(object):
         # Similarly, 'nbo' goes to 8.
         if struct.name == "tbo":
             if len(struct.connectivity) > 13:
+                return False
+        elif struct.name == "pto":
+            if len(struct.connectivity) > 14:
                 return False
         elif struct.name == "nbo":
             if len(struct.connectivity) > 9:
@@ -1256,7 +1262,7 @@ class Structure(object):
         bondlist = [(i,tuple(j)) for i in bonds for j in bonds[i]]
 
         if not bonds:
-            info("No new bonds formed with SBU %i"%(sbu))
+            #info("No new bonds formed with SBU %i"%(sbu))
             return
 
         for bond in bondlist:
@@ -1386,6 +1392,7 @@ class Structure(object):
         the Y vector (alignment vector) as well, so more unique
         structures can be obtained.
         """
+        tol = 0.1
         # establish which SBUs are tyring to be joined
         bond1 = bond[0]
         sbu2 = bond[1][0]
@@ -1395,17 +1402,23 @@ class Structure(object):
         # checking now for aligned Y-vectors (alignment).
         vector1 = normalize(self.connect_align[sbu1][bond1])
         vector2 = normalize(self.connect_align[sbu2][bond2])
+        nbondvect = normalize(bondvector)
 
         # test by dot product, the absolute value should = 1
         dotprod = abs(dot(vector1, vector2))
-        dottest = np.allclose(dotprod, 1., atol=0.1)
+        dottest = np.allclose(dotprod, 1., atol=tol)
 
         # test by cross product, the vector should be (0,0,0)
         xprod = cross(vector1, vector2)
-        xtest = np.allclose(xprod, zeros3[:], atol=0.1)
-        # FIXME(pboyd): temporary fix for the fact that this constraint
-        # won't work for chain-type structures like In3+
-        if dottest and xtest:
+        xtest = np.allclose(xprod, zeros3[:], atol=tol)
+
+        joined_atoms_vect = normalize(self.connect_vector[sbu1][bond1])
+        perpcross = cross(joined_atoms_vect, nbondvect)
+        perpdot = dot(joined_atoms_vect, nbondvect)
+        perptest = np.allclose(length(perpcross), 1., atol=tol) and \
+                np.allclose(perpdot, 0., atol=tol)
+        if dottest and xtest and not perptest:
+        #if not perptest:
             # check to see if the vector can be added to the 
             # existing lattice vectors
             if self.valid_vector(bondvector):
@@ -1516,7 +1529,7 @@ class Structure(object):
         Checks for pairwise atom overlaps between a particular SBU and
         the rest of the MOF
         """
-        tol = 1.3
+        tol = 1.0
 
         coords = self.coordinates[sbu]
         # COM IS RELATED to a NAME>>>>.
@@ -1543,7 +1556,7 @@ class Structure(object):
         check = [(i, j) for i in range(len(distmat)) for j in
                 range(len(distmat[i])) if distmat[i][j] <= tol]
         if len(check) > 0:
-            print "OVERFUCKINGLAP!!!!!!"
+            print "OVERLAP"
             return True
         return False
 
@@ -1792,12 +1805,12 @@ class Structure(object):
         cellcentre = zeros1[:]
         for k in self.cell:
             cellcentre = vect_add(cellcentre, scalar_div(2., k))
-        shiftvect = vect_sub(cellcentre, firstsbu.COM["default"])
+        shiftvect = vect_sub(cellcentre, self.COM[0])
         for sbu in range(len(self.coordinates)):
             for ibond, bond in enumerate(self.connect_points[sbu]):
                 self.connect_points[sbu][ibond] = vect_add(shiftvect, bond)
-            for icoord, coord in enumerate(self.coordinates[sbu]):
-                self.coordinates[sbu][icoord] = vect_add(shiftvect, coord)
+            #for icoord, coord in enumerate(self.coordinates[sbu]):
+            #    self.coordinates[sbu][icoord] = vect_add(shiftvect, coord)
             sbufracts = [self.fractional(coord) for coord in 
                             self.coordinates[sbu]]
             self.fcoords.append(sbufracts)
@@ -1931,6 +1944,8 @@ class Structure(object):
             vector = vect_sub(vector, shift_vector)
 
         elif self.pbcindex == 1:
+            # store the third entry of the vector 
+            # (this should not be altered)
             proj_a = project(vector, A)
             proj_b = project(vector, B)
             a = length(proj_a) / length(A)
@@ -2050,10 +2065,18 @@ class Structure(object):
                 info("parallel boundary vector exists!")
                 return False
         if self.pbcindex == 1:
+
             if self.plane_test(vect, tol=0.2):
                 info("vector lies in the same plane!")
                 return False
-        if self.pbcindex == 2:
+            proj1 = project(vect, self.cell[0])
+            proj2 = project(vect, self.cell[1])
+            planproj = vect_add(proj1, proj2)
+            angle = calc_angle(planproj, vect)
+            if angle <= 0.4:
+                info("Bad angle between vector and plane!")
+                return False
+        elif self.pbcindex == 2:
             # This may change in the future, if changeable 
             # periodic boundaries are considered.
             return False
@@ -2432,7 +2455,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("fortesting4", options)
+    sbutest = Database("fortesting2", options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 
