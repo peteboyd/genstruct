@@ -380,6 +380,8 @@ class Generate(object):
         Determine all the unique possible bonding which can occur
         with the dataset
         """
+        #TODO(pboyd): determination of bondtypes should include a 
+        #metal and organic with the same index
         self.bondtypes={}
         dataset = structure.sbu_array
         datalength = len(dataset)
@@ -398,7 +400,6 @@ class Generate(object):
         sbus = [structure.sbu_array[sbu] for sbu in sbu_inds]
         name = structure.name
         bonding = []
-
         bonds = [[],[]]; flag_name = [[],[]]; flag_sym = [[],[]]
 
         standard_bonds = {}
@@ -428,28 +429,38 @@ class Generate(object):
         complete_set = [(i, j) for i in bonds[0] for j in bonds[1]]
         for bond in complete_set:
             # determine if this bond can be formed
+
+            # if both SBUs are metals, then consider only if there
+            # is a bond name called 'intermetal'
             if sbus[0].metal == sbus[1].metal:
                 if flag_name[0][bond[0]] == "intermetal" and \
                     flag_name[1][bond[1]] == "intermetal":
                     if flag_sym[0][bond[0]] != flag_sym[1][bond[1]]:
                         # add symmetry type
                         angle = 0
-                        key = ("intermetal", sbus[0].index, 
-                                flag_sym[0][bond[0]], sbus[1].index, 
+                        # NOTE: changed sbus.index to sbus.internal_index
+                        key = ("intermetal", sbus[0].internal_index, 
+                                flag_sym[0][bond[0]], 
+                                sbus[1].internal_index, 
                                 flag_sym[1][bond[1]], angle)
-                        value = ("intermetal", sbus[0].index, bond[0],
-                                 sbus[1].index, bond[1])
+                        value = ("intermetal", sbus[0].internal_index, 
+                                 bond[0], 
+                                 sbus[1].internal_index, bond[1])
 
                         self.bondtypes.setdefault(key, [])
                         if value not in self.bondtypes[key]:
                             self.bondtypes[key].append(value)
                         
+            # if both SBUs are metals, then consider only if there
+            # is a bond name called 'intermetal'
             else:
                 if flag_name[0][bond[0]] == flag_name[1][bond[1]]:
                     # range over all angles
                     for angle in range(len(structure.connect_angles)):
-                        key = (flag_name[0][bond[0]], sbus[0].index, 
-                                flag_sym[0][bond[0]], sbus[1].index, 
+                        key = (flag_name[0][bond[0]], 
+                                sbus[0].internal_index, 
+                                flag_sym[0][bond[0]], 
+                                sbus[1].internal_index, 
                                 flag_sym[1][bond[1]], angle)
                         # Note: for the organic linker, the "metallic"
                         # bonds replace the regular bonds, they do not
@@ -468,8 +479,10 @@ class Generate(object):
                             elif not sbus[1].metal:
                                 bval2 = bond[1] % len(
                                         sbus[1].connect_points[name])
-                        value = (flag_name[0][bond[0]], sbus[0].index, 
-                                 bval1, sbus[1].index, bval2, angle)
+                        value = (flag_name[0][bond[0]], 
+                                 sbus[0].internal_index, 
+                                 bval1, sbus[1].internal_index, bval2,
+                                 angle)
                         self.bondtypes.setdefault(key, [])
                         if value not in self.bondtypes[key]:
                             self.bondtypes[key].append(value)
@@ -563,9 +576,9 @@ class Generate(object):
                         if len(set(sets)) < len(set(base)):
                             pass
                         else:
-                            #copystruct.final_coords()
-                            #copystruct.mof_reorient()
-                            #copystruct.get_cartesians()
+                            copystruct.final_coords()
+                            copystruct.mof_reorient()
+                            copystruct.get_cartesians()
                             self.finalize(copystruct, 0)
                             # export the MOF for functional group
                             # placement
@@ -580,8 +593,10 @@ class Generate(object):
                         break
                     # constraints and conditions related to specific
                     # topologies
-                    if copystruct.name == "pcu" or \
-                       copystruct.name == "nbo":
+                    # just make one for now...
+                    if copystruct.name == "garbage":
+                    #if copystruct.name == "pcu" or \
+                    #   copystruct.name == "nbo":
                         if len(indexset) > 2:
                             if structcount == 3:
                                 done = True
@@ -611,18 +626,23 @@ class Generate(object):
         # formatting class for calling the symmetry routines
         # TODO(pboyd): this is a bit of a hack job - should clean this.
         ASEstruct = Atoms(symbols=atoms, positions=coords, 
-                cell=struct.cell, pbc=True)
+                cell=struct.cell, pbc=False)
 
         self.mofcount += 1
-        pdbfile = self.outdir + "%06i_structure"%(self.mofcount)
+        #filename = self.outdir + "%06i_structure"%(self.mofcount)
+        # no longer reference count
+        filename = self.outdir + "structure"
         for sbu in struct.sbu_array:
-            pdbfile += "_%i"%(sbu.index)
-        pdbfile += "_%i"%(idx)
-        pdbfile += "_%s"%(struct.name)
+            if sbu.metal:
+                type = "met"
+            else:
+                type = "org"
+            filename += "_%3s_%i"%(type, sbu.index)
+        filename += "_%3s_%i"%("fnl", idx)
+        filename += "_%s"%(struct.name)
         cif = CIF(ASEstruct)
-        cif.write_cif(pdbfile)
-
-        #struct.write_pdb(pdbfile)
+        cif.write_cif(filename)
+        #struct.write_pdb(filename)
         return
 
     def valid_struct(self, string, ind):
@@ -776,8 +796,8 @@ class Generate(object):
         structure.
         """
         idx = [int(i) for i in string.split("-")]
-        sbutype1 = struct.mof[idx[0]].index
-        sbutype2 = struct.sbu_array[idx[2]].index
+        sbutype1 = struct.mof[idx[0]].internal_index
+        sbutype2 = struct.sbu_array[idx[2]].internal_index
         bond1 = idx[1]
         bond2 = idx[3]
         angletype = idx[4]
@@ -785,8 +805,9 @@ class Generate(object):
         # type of bond joining the two SBUs as determined by the SBU
         # already placed.
         bondname = struct.vectorflag[idx[0]][idx[1]]
-        # since index, bondtype is unique, if the bond exists it is
-        # in one of the following two forms in the dictionary
+        # since internal_index, bondtype is unique, if the bond 
+        # exists it is in one of the following two forms in the 
+        # dictionary
         type1 = (bondname, sbutype1, bond1, sbutype2, bond2, 
                  angletype)
         type2 = (bondname, sbutype2, bond2, sbutype1, bond1, 
@@ -812,9 +833,15 @@ class SBU(object):
         # each connective bond is assigned a type.  If bonds are 
         # different they should have different types.
         self.name = None
-        # index is used to keep track of the SBU's order when building
-        # new structures.
+        # index is a global definition which should be defined in the
+        # input file.  This should be a unique identifier for a
+        # particular SBU so that it can be referenced in a database.
         self.index = 0
+        # internal_index is for the purposes of the code, this will 
+        # classify each SBU in the dataset individually so that 
+        # particular bonding rules can be pre-established between SBUs.
+        # this is in case two SBUs have the same index (described above).
+        self.internal_index = 0
         # internal index to keep track of the bonding rules
         self.type = None
         self.atom_label = {}
@@ -1662,21 +1689,21 @@ class Structure(object):
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
         # TODO(pboyd): add option to debug and apply if true.
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
     
@@ -1803,14 +1830,16 @@ class Structure(object):
         """
         firstsbu = self.mof[0]
         cellcentre = zeros1[:]
+        # re-initialize the fcoords
+        self.fcoords = []
         for k in self.cell:
             cellcentre = vect_add(cellcentre, scalar_div(2., k))
         shiftvect = vect_sub(cellcentre, self.COM[0])
         for sbu in range(len(self.coordinates)):
             for ibond, bond in enumerate(self.connect_points[sbu]):
                 self.connect_points[sbu][ibond] = vect_add(shiftvect, bond)
-            #for icoord, coord in enumerate(self.coordinates[sbu]):
-            #    self.coordinates[sbu][icoord] = vect_add(shiftvect, coord)
+            for icoord, coord in enumerate(self.coordinates[sbu]):
+                self.coordinates[sbu][icoord] = vect_add(shiftvect, coord)
             sbufracts = [self.fractional(coord) for coord in 
                             self.coordinates[sbu]]
             self.fcoords.append(sbufracts)
@@ -2189,6 +2218,16 @@ class Database(object):
         for sbu in range(counter):
             sbuchunk = self.parselines(body)
             self.database.append(SBU(sbuchunk))
+        self.assign_internal_indices()
+
+    def assign_internal_indices(self):
+        """
+        Gives each SBU a unique identifier (order index in list) which
+        can be referenced outside of the database list
+        """
+        for ind, sbu in enumerate(self.database):
+            sbu.internal_index = ind
+        return
 
     def parselines(self, file):
         """
@@ -2455,7 +2494,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("fortesting2", options)
+    sbutest = Database("petedatabase", options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 

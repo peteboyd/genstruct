@@ -108,7 +108,7 @@ class CIF(object):
     """
     def __init__(self, atoms=None):
         #self.tol = 1.267526
-        self.tol = 1.3
+        self.tol = 0.0001
         self.atoms = atoms
         self.symbols = []
         self.symdata = None
