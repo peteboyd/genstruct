@@ -552,7 +552,7 @@ class Generate(object):
                     copystruct.apply_string(string)
                     #if copystruct.overlap_allcheck():
                     if copystruct.overlap_sbucheck(sbu):
-                        pass
+                        copystruct.storetype.pop()
                     else:
                         pbctest = copystruct.pbcindex == 1
                         bondtype = self.determine_bondtype(
@@ -562,15 +562,15 @@ class Generate(object):
                         self.bondhist.append(copystruct.bondhist)
                         copystruct.stringhist.append(string)
                         self.moflib.append(copystruct)
-                        # fix for snurr's big NU100 building units
+                        # fix for Snurr's big NU100 building units
                         # TODO(pboyd): make this less time consuming
-                        if pbctest and copystruct.pbcindex == 2:
-                            for indsbu in range(len(copystruct.mof)):
-                                copystruct.sbu_check(indsbu)
+                        for indsbu in range(len(copystruct.mof)):
+                            copystruct.sbu_check(indsbu)
                     if copystruct.saturated() and copystruct.complete_box():
                         # check to see if all SBU's are included in 
                         # the structure.
-                        base = [i.index for i in copystruct.sbu_array]
+                        base = [i.internal_index for i in 
+                                 copystruct.sbu_array]
                         sets = [i[3] for i in copystruct.bondhist]
                         sets += [i[1] for i in copystruct.bondhist]
                         if len(set(sets)) < len(set(base)):
@@ -708,6 +708,24 @@ class Generate(object):
                 return False
         elif struct.name == "mtn":
             if len(struct.connectivity) > 9:
+                return False
+        elif struct.name == "acs":
+            if len(struct.connectivity) > 7:
+                return False
+        elif struct.name == "bcu":
+            if len(struct.connectivity) > 6:
+                return False
+        elif struct.name == "flu":
+            if len(struct.connectivity) > 7:
+                return False
+        elif struct.name == "the":
+            if len(struct.connectivity) > 12:
+                return False
+        elif struct.name == "ubt":
+            if len(struct.connectivity) > 7:
+                return False
+        elif struct.name == "rht":
+            if len(struct.connectivity) > 8:
                 return False
         inter_metal_test = [sbu.connect_points.has_key("intermetal")
                 for sbu in sbu_list]
@@ -861,11 +879,11 @@ class SBU(object):
         self.connect_angles = {}
         # index of the atoms which form connecting bonds with
         # other SBUs
-        self.bondingatoms = []
+        self.bondingatoms = {}
         self.COM = {}
 
         # store a connectivity table
-        self.table = []
+        self.table = {} 
         # store indices which are Hydrogen atoms
         self.hydrogens = []
         # store indices of atoms bonded to Hydrogen atoms.
@@ -877,6 +895,53 @@ class SBU(object):
         self.centre_of_mass()
         self.COM_shift()
         self.find_hydrogen_atoms()
+        # identify the atoms in the SBU which are involved in connecting
+        # the MOF (for disregarding overlap considerations)
+        self.determine_bonding_atoms()
+
+    def determine_bonding_atoms(self):
+        """
+        Returns the array of atom indices which are involved in
+        connecting SBUs.
+        """
+        # TODO(pboyd): currently ignores bonding between metal SBUs
+        # "intermetal" type structures. 
+        for name in self.table.keys():
+            for idx, bonding in enumerate(self.table[name]):
+                if name == "metallic":
+                    if self.atom_label[name][idx] == "N":
+                        # if the atom is within a certain distance 
+                        # of a connect_point, then it is a bonding
+                        # atom
+                        if [(idx, j) for j in self.connect_points[name]
+                                if length(j, self.coordinates[name][idx])
+                                    < 1.3]:
+                            self.bondingatoms.setdefault(name,[]).\
+                                    append(idx)
+
+                        #nbonds = len([i for i in bonding if i != 0.])
+                        #if nbonds < 3:
+                else:
+                    if self.atom_label[name][idx] == "C":
+                        # just select one of the bonding parameters at 
+                        # random.  They should all start nearly in the 
+                        # same spot.
+                        param = self.connect_points.keys()
+                        try:
+                            param.pop(param.index("metallic"))
+                        except:
+                            pass
+                        param = choice(param)
+                        if [(idx, j) for j in self.connect_points[param]
+                                if length(j, self.coordinates[name][idx])
+                                    < 1.1]:
+                            self.bondingatoms.setdefault(name,[]).\
+                                    append(idx)
+                        #nbonds = len([i for i in bonding if i != 0.])
+                        #if nbonds < 3:
+                        #    self.bondingatoms.setdefault(name,[]).\
+                        #            append(idx)
+        return
 
     def find_hydrogen_atoms(self):
         """
@@ -894,7 +959,7 @@ class SBU(object):
         self.hydrogens_connect = [0] * len(self.hydrogens)
         for ind, hydrogen in enumerate(self.hydrogens):
             # determine bonded atom index
-            for atom, dist in enumerate(self.table[hydrogen]):
+            for atom, dist in enumerate(self.table[name][hydrogen]):
                 if dist > 0.:
                     atname = self.atom_label[name][atom]
                     self.hydrogens_connect[ind] = atom
@@ -902,29 +967,20 @@ class SBU(object):
     def coord_matrix(self):
         """
         Generate a coordination matrix for the SBU's coordinates.
-        Currently only does 'default' coordinates.
         """
-        # assume the 'default' arrangment is transferrable.
-        name = "default"
-        numatms = len(self.atom_label[name])
-        # populate empty connectivity table
-        self.table = [[0.] * numatms for i in xrange(numatms)]
-        # bonding depreciated?
-        bonding = [[]] * numatms
-
-        distmatrx = distance.cdist(self.coordinates[name], 
+        for name in self.atom_label.keys():
+            numatms = len(self.atom_label[name])
+            # populate empty connectivity table
+            self.table[name] = [[0.] * numatms for i in xrange(numatms)]
+            distmatrx = distance.cdist(self.coordinates[name], 
                                    self.coordinates[name])
-        fuckthis = []
-        for i in range(numatms):
-            for j in range(i+1, numatms):
-                tol = bond_tolerance(self.atom_label[name][i], 
+            for i in range(numatms):
+                for j in range(i+1, numatms):
+                    tol = bond_tolerance(self.atom_label[name][i], 
                                      self.atom_label[name][j])
-                if (i != j) and (distmatrx[i,j] <= tol):
-                    fuckthis.append((i, j, distmatrx[i,j]))
-                    self.table[i][j] = distmatrx[i,j]
-                    self.table[j][i] = distmatrx[j,i]
-                    bonding[i].append(j)
-                    bonding[j].append(i)
+                    if (i != j) and (distmatrx[i,j] <= tol):
+                        self.table[name][i][j] = distmatrx[i,j]
+                        self.table[name][j][i] = distmatrx[j,i]
         return 
 
     def init_arrays(self, data):
@@ -1211,6 +1267,9 @@ class Structure(object):
         self.pbcindex = -1
         # history of how the structure was made
         self.stringhist = []
+
+        # store what type was bonded (ie. metallic, default etc)
+        self.storetype = []
         self.seed(name, 0)
 
     def store_angles(self):
@@ -1226,28 +1285,6 @@ class Structure(object):
     def reset(self):
         sbuarray = self.sbu_array
         self.__init__(sbuarray)
-
-    def apply_rule(self, key, pair):
-        """
-        applies the bonding rule [pair] to the sbu defined by [key].
-        """
-        sbu = key[0]
-        bond = key[1]
-        angle = key[2]
-
-        new_sbu = pair[0]
-        new_bond = pair[1]
-        new_angle = pair[2]
-
-        # angles are typically placed on the organic unit, so choose
-        # the angle from the organic unit.
-        # Exceptions to this are when a metal cluster bonds to a 
-        # metal cluster.
-        if self.mof[sbu].metal:
-            angle = new_angle 
-        else: 
-            angle = angle
-        self.add_new_sbu(sbu, bond, new_sbu, new_bond, angle)
 
     def apply_string(self, string):
         """applies the directions from a string"""
@@ -1378,10 +1415,12 @@ class Structure(object):
             self.coordinates.append(self.sbu_array[ind].coordinates[name][:])
             self.atoms.append(self.sbu_array[ind].atom_label[name][:])
             self.COM.append(self.sbu_array[ind].COM[name][:])
+            self.storetype.append("metallic")
         else:
             self.coordinates.append(self.sbu_array[ind].coordinates["default"][:])
             self.atoms.append(self.sbu_array[ind].atom_label["default"][:])
             self.COM.append(self.sbu_array[ind].COM["default"][:])
+            self.storetype.append("default")
 
         nconnect = len(self.sbu_array[ind].connect_vector[name])
         self.connectivity.append([None]*nconnect)
@@ -1436,15 +1475,16 @@ class Structure(object):
         dottest = np.allclose(dotprod, 1., atol=tol)
 
         # test by cross product, the vector should be (0,0,0)
-        xprod = cross(vector1, vector2)
-        xtest = np.allclose(xprod, zeros3[:], atol=tol)
+        #xprod = cross(vector1, vector2)
+        #xtest = np.allclose(xprod, zeros3[:], atol=tol)
 
         joined_atoms_vect = normalize(self.connect_vector[sbu1][bond1])
         perpcross = cross(joined_atoms_vect, nbondvect)
         perpdot = dot(joined_atoms_vect, nbondvect)
         perptest = np.allclose(length(perpcross), 1., atol=tol) and \
                 np.allclose(perpdot, 0., atol=tol)
-        if dottest and xtest and not perptest:
+        #if dottest and xtest and not perptest:
+        if dottest and not perptest:
         #if not perptest:
             # check to see if the vector can be added to the 
             # existing lattice vectors
@@ -1556,34 +1596,57 @@ class Structure(object):
         Checks for pairwise atom overlaps between a particular SBU and
         the rest of the MOF
         """
-        tol = 1.0
+        #TODO(pboyd): eventually we will need a bonding matrix of 
+        # the entire MOF structure instead of these cheap fixes.
+        tol = 2.0
+        #tol=1.5
 
         coords = self.coordinates[sbu]
         # COM IS RELATED to a NAME>>>>.
         # SBU.coordinates is not shifted, only self.coordinates!!!
+
         com = self.COM[sbu]
+        remaining_coords = []
         if self.pbcindex == 2:
-            remaining_coords = self.min_img_shift(com, excl=sbu)
-            # convert to 1d array of coordinates
-            remaining_coords = [coord for i in 
-                                range(len(remaining_coords))
-                                for coord in remaining_coords[i]]
-            write_xyz("history", [atom for sbu in range(len(self.atoms)) 
-                for atom in self.atoms[sbu]], 
-                    remaining_coords + coords, self.cell)
+            shifted_coords = self.min_img_shift(com)
+            for index in range(len(self.coordinates)):
+                name = self.storetype[index]
+                # remove bondingatoms...
+                try:
+                    bonding = self.mof[index].bondingatoms[name]
+                except:
+                    # Ba2+ case is special
+                    bonding = []
+                remaining_coords.append([shifted_coords[index][coord] 
+                    for coord in range(len(self.coordinates[index])) 
+                    if coord not in bonding and index != sbu])
+
         else:
             # TODO(pboyd): probably should have some kind of minimum
             # image shift if less than three periodic boundaries.
-            remaining_coords = [self.coordinates[sbus][coord] for 
-                    sbus in range(len(self.coordinates)) for coord
-                    in range(len(self.coordinates[sbus])) if sbus != sbu]
+            for index in range(len(self.coordinates)):
+                name = self.storetype[index]
+                # remove bondingatoms...
+                try:
+                    bonding = self.mof[index].bondingatoms[name]
+                except:
+                    # Ba2+ case is special
+                    bonding = []
+                remaining_coords.append([self.coordinates[index][coord] for coord in
+                        range(len(self.coordinates[index])) if coord not in
+                        bonding and index != sbu])
 
+
+        # make remaining_coords 1d
+        remaining_coords = [remaining_coords[i][j] for i in 
+                range(len(remaining_coords)) for j in
+                range(len(remaining_coords[i])) if remaining_coords[i][j]]
         distmat = distance.cdist(coords, remaining_coords)
 
         check = [(i, j) for i in range(len(distmat)) for j in
-                range(len(distmat[i])) if distmat[i][j] <= tol]
+                range(len(distmat[i])) if distmat[i][j] <= tol] 
         if len(check) > 0:
-            print "OVERLAP"
+            info("Overlap found")
             return True
         return False
 
@@ -1706,7 +1769,10 @@ class Structure(object):
         #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
-    
+        if self.pbcindex == 2:
+            self.fcoords.append([self.fractional(coord) for 
+                coord in self.coordinates[sbu2]])
+
     def bond_align(self, sbu1, bond1, sbu2, bond2, rotangle):
         """
         Align two sbus by their orientation vectors
@@ -2494,7 +2560,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("petedatabase", options)
+    sbutest = Database("fortesting", options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 
