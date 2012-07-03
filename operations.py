@@ -99,30 +99,58 @@ def bond_tolerance(atom1, atom2):
     # This function will need some elaboration
     # TODO(pboyd): these conditions are not robust and
     # should be changed when the code becomes bigger
-    if("O" in [atom1,atom2])and("C" in [atom1,atom2]):
+    if("O" in [atom1, atom2])and("C" in [atom1, atom2]):
         return 1.6
     # G is the metal - metal bond for linked chains
-    elif("G" in (atom1,atom2) and 
-        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
+    elif("G" in (atom1, atom2) and 
+        (("Y" not in (atom1, atom2))and("Z" not in (atom1, atom2)))):
         return 1.35
     elif("X" in (atom1, atom2) and 
-        (("Y" not in (atom1,atom2))and("Z" not in (atom1,atom2)))):
+        (("Y" not in (atom1, atom2))and("Z" not in (atom1, atom2)))):
         return 0.97
-    elif("G" in (atom1,atom2) or "X" in (atom1, atom2))and \
-        (("Y" in (atom1,atom2))or("Z" in (atom1,atom2))):
+    elif("G" in (atom1, atom2) or "X" in (atom1, atom2))and \
+        (("Y" in (atom1, atom2))or("Z" in (atom1, atom2))):
         return 1.1
-    elif("Y" in (atom1,atom2))and("G" not in (atom1,atom2) 
+    elif("Y" in (atom1, atom2))and("G" not in (atom1, atom2) 
             or "X" not in (atom1,atom2)):
         return 0.
-    elif("Z" in (atom1,atom2))and("G" not in (atom1,atom2) 
+    elif("Z" in (atom1, atom2))and("G" not in (atom1, atom2) 
             or "X" not in (atom1,atom2)):
         return 0.
-    elif("Br" in (atom1,atom2))and("J" in (atom1,atom2)):
+    elif("Br" in (atom1, atom2))and("J" in (atom1, atom2)):
         return 2.0
-    elif("I" in (atom1,atom2))and("J" in (atom1,atom2)):
+    elif("I" in (atom1, atom2))and("J" in (atom1, atom2)):
         return 2.5
-    elif("Cl" in (atom1,atom2))and("J" in (atom1,atom2)):
-        return 1.8 
+    elif("Cl" in (atom1, atom2))and("J" in (atom1, atom2)):
+        return 1.8
+    elif("H" in (atom1, atom2))and("C" in (atom1, atom2)):
+        return 1.15
+    elif("P" in (atom1, atom2))and("C" in (atom1, atom2)):
+        return 1.9
+    elif(set((atom1, atom2)) == set("C")):
+        return 1.6
+    elif("Cu" in (atom1, atom2))and("N" in (atom1,  atom2)):
+        return 2.0
+    elif("Zn" in (atom1, atom2))and("N" in (atom1, atom2)):
+        return 2.0
+    elif("Cu" in (atom1, atom2))and("O" in (atom1,  atom2)):
+        return 2.0
+    elif("Zn" in (atom1, atom2))and("O" in (atom1, atom2)):
+        return 2.0
+    elif("Cr" in (atom1, atom2))and("O" in (atom1, atom2)):
+        return 2.0
+    elif("Cu" in (atom1, atom2))and("O" in (atom1, atom2)):
+        return 2.0
+    elif(set((atom1, atom2)) == set("Cu")):
+        return 3.8
+    elif("Ba" in (atom1, atom2))and("O" in (atom1, atom2)):
+        return 3.0
+    elif(set((atom1, atom2)) == set("Ba")):
+        return 4.6
+    elif(set((atom1, atom2)) == set("H")):
+        return 1.
+    elif("I" in (atom1, atom2))and("C" in (atom1, atom2)):
+        return 2.2
     else:
         return 1.6
 

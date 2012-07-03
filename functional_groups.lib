@@ -5,7 +5,7 @@
 # Blocks of text need to be indented.
 
 [F]
-index = 48
+index = 1 
 name = Fluoro
 atoms =
     F   0.0  0.0  0.0
@@ -15,7 +15,7 @@ normal = 0.0 0.0 1.0
 carbon_bond = 1.41
 
 [Cl]
-index = 49
+index = 2
 name = Chloro
 atoms =
     Cl   0.0  0.0  0.0
@@ -26,7 +26,7 @@ carbon_bond = 1.77
 
 
 [Br]
-index = 50
+index = 3
 name = Bromo
 atoms =
     Br   0.0  0.0  0.0
@@ -37,7 +37,7 @@ carbon_bond = 2.04
 
 
 [I]
-index = 64
+index = 4
 name = Iodo
 atoms =
     I    0.0  0.0  0.0
@@ -48,7 +48,7 @@ carbon_bond = 2.12
 
 
 [NH2]
-index = 54
+index = 5
 name = Amine
 atoms =
     N    0.000  0.000  0.000
@@ -61,7 +61,7 @@ carbon_bond = 1.37
 
 
 [Me]
-index = 51
+index = 6
 name = Methyl
 atoms =
     C    0.000000  0.000000  0.000000
@@ -75,7 +75,7 @@ carbon_bond = 1.68
 
 
 [Et]
-index = 52
+index = 7
 name = Ethyl
 atoms =
     C           0.000000     0.000000     0.000000
@@ -92,7 +92,7 @@ carbon_bond = 1.60
 
 
 [Pr]
-index = 53
+index = 8
 name = Propyl
 atoms =
     C           0.000000     0.000000     0.000000
@@ -112,7 +112,7 @@ carbon_bond = 1.60
 
 
 [NO2]
-index = 63
+index = 9
 name = Nitro
 atoms =
     N    0.000  0.000  0.000
@@ -126,7 +126,7 @@ carbon_bond = 1.51
 
 
 [HCO]
-index = 62
+index = 10
 name = Aldehyde
 atoms =
     C    0.000  0.000  0.000
@@ -138,23 +138,23 @@ normal = 0.0 0.0 1.0
 carbon_bond = 1.64
 
 
-[COOH]
-index = 61
-name = Carboxylate
-atoms =
-    C    0.000  0.000  0.000
-    O    1.032  0.651  0.000
-    O   -1.231  0.530  0.000
-    H   -1.231  1.550  0.000
-connection_point = 0
-orientation = 0.0 1.0 0.0
+#[COOH]
+#index = N/A
+#name = Carboxylate
+#atoms =
+#    C    0.000  0.000  0.000
+#    O    1.032  0.651  0.000
+#    O   -1.231  0.530  0.000
+#    H   -1.231  1.550  0.000
+#connection_point = 0
+#orientation = 0.0 1.0 0.0
 #normal = 0.0 0.0 1.0
-normal = 0.5307 0.0 0.8476
-carbon_bond = 1.55
+#normal = 0.5307 0.0 0.8476
+#carbon_bond = 1.55
 
 
 [OH]
-index = 56
+index = 11
 name = Alcohol
 atoms =
     O    0.000  0.000  0.000
@@ -166,7 +166,7 @@ carbon_bond = 1.38
 
 
 [CN]
-index = 57
+index = 12
 name = Nitrile
 atoms =
     C    0.000  0.000  0.000
@@ -177,7 +177,7 @@ normal = 0.0 0.0 1.0
 carbon_bond = 1.69
 
 [Ph]
-index = 55
+index = 13
 name = Phenyl
 atoms =
     C    0.000  0.000  0.000
@@ -198,7 +198,7 @@ carbon_bond = 1.52
 
 
 [OMe]
-index = 58
+index = 14
 name = Methoxy
 atoms =
     C           1.247339     0.648100    -0.000091
@@ -213,7 +213,7 @@ carbon_bond = 1.42
 
 
 [OEt]
-index = 59
+index = 15
 name = Ethoxy
 atoms =
     C           0.983202     2.140590    -0.000239
@@ -231,7 +231,7 @@ carbon_bond = 1.42
 
 
 [OPr]
-index = 60
+index = 16
 name = PropylEther
 atoms =
     C           3.119867     1.580933     1.383208

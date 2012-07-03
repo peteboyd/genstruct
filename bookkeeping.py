@@ -106,19 +106,19 @@ class CIF(object):
     """
     Write cif files
     """
-    def __init__(self, atoms=None):
+    def __init__(self, atoms, connect_table=None):
         #self.tol = 1.267526
-        self.tol = 0.0001
+        self.tol = 0.01
         self.atoms = atoms
         self.symbols = []
         self.symdata = None
-        if atoms:
-            # populate all parameters
-            self.symdata = spglib.get_symmetry_dataset(self.atoms, 
+        self.symdata = spglib.get_symmetry_dataset(self.atoms, 
                                                     symprec=self.tol)
+        if connect_table is not None:
+            self.connect_table = connect_table
         else:
-            print "Need atoms"
-
+            self.connect_table = None
+        
     def add_labels(self, symbols):
         """
         Include numbered labels for each atom.
@@ -143,8 +143,8 @@ class CIF(object):
             filename = name + ".cif"
 
         # get refined data from symmetry finding
-        cell, frac_coords, numbers = spglib.refine_cell(self.atoms,
-                                                    symprec=self.tol)
+        cell, frac_coords, numbers = spglib.refine_cell(self.atoms,symprec=self.tol)
+        
         # determine cell parameters
         cellparams = self.get_cell_params(cell)
 
@@ -205,6 +205,18 @@ class CIF(object):
                     unique_coords[atom]
             lines += "%-7s%-3s%10.5f%10.5f%10.5f\n"%(tuple(line))
         
+        if self.connect_table is not None:
+            lines += "loop_\n"
+            lines += "_geom_bond_atom_site_label_1\n"
+            lines += "_geom_bond_atom_site_label_2\n"
+            lines += "_geom_bond_distance\n"
+            lines += "_ccdc_geom_bond_type\n"
+            keys = self.connect_table.keys()
+            keys.sort()
+            for bond in keys:
+                lines += "%-7s%-7s%10.5f%5s\n"%(unique_labels[bond[0]],
+                        unique_labels[bond[1]], self.connect_table[bond], "S")
+
         ciffile = open(filename, 'w')
         ciffile.writelines(lines)
         ciffile.close()
@@ -469,3 +481,143 @@ cell_setting = {
   229   :   "cubic",          
   230   :   "cubic",          
   } 
+
+# main group values taken from J.Phys.Chem.A, 113, 5811, 2009
+# transition metal radii taken from Bondi JPC '64
+#Radii = {
+#  "H"   :   0.10,
+#  "He"  :   0.40,
+#  "Li"  :   0.81,
+#  "Be"  :   0.53,
+#  "B"   :   0.92,
+#  "C"   :   0.70,
+#  "N"   :   0.55,
+#  "O"   :   0.52,
+#  "F"   :   0.47,
+#  "Ne"  :   0.54,
+#  "Na"  :   0.27,
+#  "Mg"  :   0.73,
+#  "Al"  :   0.84,
+#  "Si"  :   0.10,
+#  "P"   :   0.80,
+#  "S"   :   0.80,
+#  "Cl"  :   0.75,
+#  "Ar"  :   0.88,
+#  "K"   :   0.75,
+#  "Ca"  :   0.31,
+#  "Ga"  :   0.87,
+#  "Ge"  :   0.11,
+#  "As"  :   0.85,
+#  "Se"  :   0.90,
+#  "Br"  :   0.83,
+#  "Kr"  :   0.02,
+#  "Rb"  :   0.03,
+#  "Sr"  :   0.49,
+#  "In"  :   0.93,
+#  "Sn"  :   0.17,
+#  "Sb"  :   0.06,
+#  "Te"  :   0.06,
+#  "I"   :   0.98,
+#  "Xe"  :   0.16,
+#  "Cs"  :   0.43,
+#  "Ba"  :   0.68,
+#  "Tl"  :   0.96,
+#  "Pb"  :   0.02,
+#  "Bi"  :   0.07,
+#  "Po"  :   0.97,
+#  "At"  :   0.02,
+#  "Rn"  :   0.20,
+#  "Fr"  :   0.48,
+#  "Ra"  :   0.83,
+## Transition metals.  4s means the radius of the 4s shell was used,
+## B means taken from Bondi DOI: 10.1246/bcsj.20100166
+#  "Sc"  :   0.08,   # 4s
+#  "Ti"  :   0.99,   # 4s
+#  "V"   :   0.91,   # 4s
+#  "Cr"  :   0.92,   # 4s
+#  "Mn"  :   0.77,   # 4s
+#  "Fe"  :   0.71,   # 4s
+#  "Co"  :   0.65,   # 4s
+#  "Ni"  :   0.63,   # B
+#  "Cu"  :   0.40,   # B
+#  "Zn"  :   0.39,   # B
+#  "Y"   :   0.23,   # 5s
+#  "Zr"  :   0.12,   # 5s
+#  "Nb"  :   0.03,   # 5s
+#  "Mo"  :   0.95,   # 5s
+#  "Tc"  :   0.89,   # 5s
+#  "Ru"  :   0.89,   # 5s
+#  "Rh"  :   0.86,   # 5s
+#  "Pd"  :   0.63,   # B
+#  "Ag"  :   0.72,   # B
+#  "Cd"  :   0.58    # B
+# }
+
+Radii = {
+ "H"   :   1.10,
+ "He"  :   1.40,
+ "Li"  :   1.81,
+ "Be"  :   1.53,
+ "B"   :   1.92,
+ "C"   :   1.70,
+ "N"   :   1.55,
+ "O"   :   1.52,
+ "F"   :   1.47,
+ "Ne"  :   1.54,
+ "Na"  :   2.27,
+ "Mg"  :   1.73,
+ "Al"  :   1.84,
+ "Si"  :   2.10,
+ "P"   :   1.80,
+ "S"   :   1.80,
+ "Cl"  :   1.75,
+ "Ar"  :   1.88,
+ "K"   :   2.75,
+ "Ca"  :   2.31,
+ "Ga"  :   1.87,
+ "Ge"  :   2.11,
+ "As"  :   1.85,
+ "Se"  :   1.90,
+ "Br"  :   1.83,
+ "Kr"  :   2.02,
+ "Rb"  :   3.03,
+ "Sr"  :   2.49,
+ "In"  :   1.93,
+ "Sn"  :   2.17,
+ "Sb"  :   2.06,
+ "Te"  :   2.06,
+ "I"   :   1.98,
+ "Xe"  :   2.16,
+ "Cs"  :   3.43,
+ "Ba"  :   2.68,
+ "Tl"  :   1.96,
+ "Pb"  :   2.02,
+ "Bi"  :   2.07,
+ "Po"  :   1.97,
+ "At"  :   2.02,
+ "Rn"  :   2.20,
+ "Fr"  :   3.48,
+ "Ra"  :   2.83,
+# Transition metals.  4s means the radius of the 4s shell was used,
+# B means taken from Bondi DOI: 10.1246/bcsj.20100166
+ "Sc"  :   2.08,   # 4s
+ "Ti"  :   1.99,   # 4s
+ "V"   :   1.91,   # 4s
+ "Cr"  :   1.92,   # 4s
+ "Mn"  :   1.77,   # 4s
+ "Fe"  :   1.71,   # 4s
+ "Co"  :   1.65,   # 4s
+ "Ni"  :   1.63,   # B
+ "Cu"  :   1.40,   # B
+ "Zn"  :   1.39,   # B
+ "Y"   :   2.23,   # 5s
+ "Zr"  :   2.12,   # 5s
+ "Nb"  :   2.03,   # 5s
+ "Mo"  :   1.95,   # 5s
+ "Tc"  :   1.89,   # 5s
+ "Ru"  :   1.89,   # 5s
+ "Rh"  :   1.86,   # 5s
+ "Pd"  :   1.63,   # B
+ "Ag"  :   1.72,   # B
+ "Cd"  :   1.58    # B
+ }
