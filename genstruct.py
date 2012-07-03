@@ -96,9 +96,9 @@ class Generate(object):
                 self.unique_bondtypes(basestructure)
                 self.exhaustive_generation(basestructure)
                 # add functional groups to built MOFs
-                #if len(self.complete_mofs) > 0:
-                #    info("Applying functional groups...")
-                #    self.apply_functional_groups()
+                if len(self.complete_mofs) > 0:
+                    info("Applying functional groups...")
+                    self.apply_functional_groups()
 
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
@@ -115,7 +115,7 @@ class Generate(object):
         dic = {}
         # isolate unique SBUs
         for sbu in sbus_withH:
-            dic[sbu.index] = sbu
+            dic[sbu.internal_index] = sbu
 
         sbus_withH = dic.values()
 
@@ -159,29 +159,24 @@ class Generate(object):
                 ignore.append(Hind)
                 replace_dic = {}
                 for idx, sbu in enumerate(sbus_withH):
-                    replace_dic[sbu.index] = select_H[idx]
+                    replace_dic[sbu.internal_index] = select_H[idx]
                 # select a structure from self.complete_mofs
                 rand = randrange(len(self.complete_mofs))
                 newstr = copy.deepcopy(self.complete_mofs[rand])
                 ovlp = False
                 for idx, sbu in enumerate(newstr.mof):
-                    if sbu.index in replace_dic.keys():
+                    sbutype = newstr.storetype[idx]
+                    if sbu.internal_index in replace_dic.keys():
                         # Go through each hydrogen listed in 
                         # replace_dic and swap for the functional group
-                        for hydrogen in replace_dic[sbu.index]:
+                        for hydrogen in replace_dic[sbu.internal_index]:
                             connect_atom = sbu.hydrogens_connect[
                                 sbu.hydrogens.index(hydrogen)]
                             # do a functional group swap
                             fnlcoords = self.functional_swap(newstr,
                                     idx, hydrogen, connect_atom, group)
-                            # append to MOF
-                            newstr.coordinates[idx] = \
-                                    newstr.coordinates[idx] + \
-                                    fnlcoords[:]
-                            newstr.atoms[idx] = newstr.atoms[idx] + \
-                                self.functional.atoms[group]
                             # check for overlaps
-                            if self.functional_overlap(idx, hydrogen,
+                            if self.overlap_fnlcheck(idx, hydrogen,
                                     connect_atom, group,
                                     self.functional.atoms[group],
                                     fnlcoords, newstr):
@@ -194,7 +189,58 @@ class Generate(object):
                                 fcoords = [newstr.fractional(coord) for
                                         coord in fnlcoords]
                                 newstr.fcoords[idx] = \
-                                    newstr.fcoords[idx] + fcoords
+                                        newstr.fcoords[idx] + fcoords[:]
+                                # append to MOF
+                                newstr.coordinates[idx] = \
+                                    newstr.coordinates[idx] + \
+                                    fnlcoords[:]
+                                newstr.atoms[idx] = newstr.atoms[idx] + \
+                                        self.functional.atoms[group][:]
+                                # add to sbu atoms as well
+                                sbu.atom_label[sbutype] += \
+                                        self.functional.atoms[group][:]
+                                sbusize = len(sbu.table[sbutype])
+                                # add the entries for the functional
+                                # group. appended to the end.
+                                fnlconnectatm = self.functional.\
+                                        connect_points[group]
+                                bond_length = self.functional.\
+                                        bond_length[group]
+                                for iatm, fnlcnt in enumerate(
+                                    self.functional.table[group]):
+                                    # append to the array
+                                    if iatm == fnlconnectatm:
+                                        # add bonding info where the
+                                        # connecting carbon is
+                                        bondarray = [0.] * (connect_atom) 
+                                        bondarray += [bond_length]
+                                        bondarray += [0.] * (sbusize - 
+                                                         connect_atom - 1)
+                                        bondarray += fnlcnt
+
+                                    else:
+                                        bondarray = [0.] * sbusize
+                                        bondarray += fnlcnt
+
+                                    sbu.table[sbutype].append(
+                                                bondarray)
+                                # add info to the existing atoms in the
+                                # SBU
+                            
+                                for jatm in range(sbusize):
+                                    if jatm == connect_atom:
+                                        bondarray = [0.] * (
+                                                fnlconnectatm)
+                                        bondarray += [bond_length]
+                                        bondarray += [0.] * (
+                                               len(self.functional.
+                                                    table[group]) -
+                                                fnlconnectatm - 1)
+                                    else:
+                                        bondarray = [0.] * len(
+                                                self.functional.
+                                                table[group])
+                                    sbu.table[sbutype][jatm] += bondarray
                     if ovlp:
                         break
 
@@ -202,57 +248,94 @@ class Generate(object):
                     mofnum += 1
                     # remove all the hydrogens
                     for idx, sbu in enumerate(newstr.mof):
-                        if sbu.index in replace_dic.keys():
-                            sortedH = list(replace_dic[sbu.index])
+                        sbutype = newstr.storetype[idx]
+                        if sbu.internal_index in replace_dic.keys():
+                            sortedH = list(replace_dic[sbu.internal_index])
                             sortedH.sort()
                             [newstr.coordinates[idx].pop(hydrogen)
                              for hydrogen in reversed(sortedH)]
                             [newstr.atoms[idx].pop(hydrogen) for 
                              hydrogen in reversed(sortedH)]
-                    self.finalize(newstr, group)
+                            [newstr.fcoords[idx].pop(hydrogen) for 
+                             hydrogen in reversed(sortedH)]
+                            #switch out the H with functional group
+                            #in the connectivity matrix of the SBU
+                            #Remove the entry for hydrogen.
+                            [sbu.atom_label[newstr.storetype[idx]].pop(
+                                hydrogen) for hydrogen in reversed(
+                                    sortedH)]
+                            for hydrogen in reversed(sortedH):
+
+                                [i.pop(j) for i in sbu.table[sbutype]
+                                     for j in range(len(i)) if 
+                                     j == (hydrogen)]
+                                [sbu.table[sbutype].pop(i) for i in
+                                     range(len(sbu.table[sbutype]))
+                                     if i == hydrogen]
+                     
+                    newstr.create_connect_table()
+                    self.finalize(newstr, group, replace_dic)
                     # write the file
                 if mofnum > 5:
                     done = True
-                elif choicecount >= 1000:
+                elif choicecount >= 2000:
                     done = True
 
-    def functional_overlap(self, sbu, hydrogen, connect_atom, 
+    def overlap_fnlcheck(self, sbu, hydrogen, connect_atom, 
                            group, atoms, coordinates, struct):
         """
         Overlap determined by transposing MOF coordinates to the 
         minimum image of the centre of mass of the functional group
         then performing a distance check with cdist.
         """
-        # tolerance for distance overlap in angstroms
-        tol = 2.
-        
+        # scaling factor for vdw radii overlap 
+        sf = 0.6
+
         fnlconnect = self.functional.connect_points[group]
         fnlcom = centre_of_mass(atoms, coordinates)
 
         # the fractional coordinates are stored
         mof_coords = struct.min_img_shift(fnlcom)
-
+        #mof_atoms = [struct.atoms[isbu][iatom] for isbu in 
+        #                range(len(struct.atoms)) for iatom in 
+        #                range(len(struct.atoms[isbu]))]
+        #coordsa = [xyz for bu in range(len(mof_coords)) for xyz in 
+        #           mof_coords[bu]]
+        #coordsa = coordsa + coordinates
+        #atm = ["Fe" for i in range(len(atoms))]
+        #atm = mof_atoms + atm
+        #write_xyz("history", atm, coordsa, zeros3)
         overlap = []
         for idx, coords in enumerate(mof_coords):
-            distmat = distance.cdist(coordinates, coords)
-            if idx == sbu:
-                check = [(i, j) for i in range(len(distmat)) for
-                        j in range(len(distmat[i])) 
-                        if distmat[i][j] <= tol and
-                        i != fnlconnect and
-                        j != hydrogen and j != connect_atom]
-            else:
-                check = [(i,j) for i in range(len(distmat)) for 
-                  j in range(len(distmat[i])) if 
-                  distmat[i][j] <= tol]
 
+            distmat = distance.cdist(coordinates, coords)
+            deletion = []
+            check = [(i, j, distmat[i][j], 
+                Radii[atoms[i]]+Radii[struct.atoms[idx][j]])
+                for i in range(len(distmat)) for
+                    j in range(len(distmat[i])) 
+                if distmat[i][j] <= (Radii[atoms[i]] + 
+                    Radii[struct.atoms[idx][j]]) * sf]
+            if idx == sbu:
+                for ich, ch in enumerate(check):
+                    if ch[0] == fnlconnect and ch[1] == connect_atom:
+                        deletion.append(ich)
+                    if ch[1] == hydrogen:
+                        deletion.append(ich)
+
+            deletion.sort()
+            for i in reversed(deletion):
+                check.pop(i)
+
+            #for thing in check:
+            #    info("%i, %i"%(idx, sbu))
+            #    info("%i, %i, %i"%(fnlconnect, connect_atom, hydrogen))
+            #    info("%i, %i, %f"%(thing[0], thing[1], distmat[thing[0]][thing[1]]))
             overlap = overlap + check
+
         # apply the conditions of the specific hydrogen and connect atom
         # for the sbu it's attached to. (HARD because fractional coords 
         # are not listed according to SBU)
-                  #if i != fnlconnect 
-                  #and j != hydrogen 
-                  #and j != connect_atom]
         
         if len(overlap) > 0:
             return True
@@ -537,7 +620,7 @@ class Generate(object):
         structure.sbu_check(0)
         # Start the string off at "0-0-0-0-0"
         iterstring = 0
-        indexset = set([sbu.index for sbu in structure.sbu_array])
+        indexset = set([sbu.internal_index for sbu in structure.sbu_array])
         done = False
         while not done:
             #apply the string
@@ -576,6 +659,7 @@ class Generate(object):
                         if len(set(sets)) < len(set(base)):
                             pass
                         else:
+                            copystruct.create_connect_table()
                             copystruct.final_coords()
                             copystruct.mof_reorient()
                             copystruct.get_cartesians()
@@ -613,7 +697,7 @@ class Generate(object):
             #iterate the string
             iterstring += 1
 
-    def finalize(self, struct, idx):
+    def finalize(self, struct, idx, hsubs=None):
         """ write the MOF file etc..."""
         coords = [struct.coordinates[sbu][coord] for sbu in 
                 range(len(struct.coordinates)) for coord in 
@@ -631,16 +715,24 @@ class Generate(object):
         self.mofcount += 1
         #filename = self.outdir + "%06i_structure"%(self.mofcount)
         # no longer reference count
-        filename = self.outdir + "structure"
+        filename = self.outdir + "str"
         for sbu in struct.sbu_array:
             if sbu.metal:
-                type = "met"
+                type = "m"
             else:
-                type = "org"
-            filename += "_%3s_%i"%(type, sbu.index)
-        filename += "_%3s_%i"%("fnl", idx)
+                type = "o"
+            filename += "_%1s%i"%(type, sbu.index)
+            if hsubs is not None:
+                if sbu.internal_index in hsubs.keys():
+                    sortedH = list(hsubs[sbu.internal_index])
+                    sortedH.sort()
+                    sortedH = tuple(sortedH)
+                    filename += "-sub"
+                    for i in sortedH:
+                        filename += "-%i"%i
+        filename += "_%1s%i"%("f", idx)
         filename += "_%s"%(struct.name)
-        cif = CIF(ASEstruct)
+        cif = CIF(ASEstruct, struct.master_table)
         cif.write_cif(filename)
         #struct.write_pdb(filename)
         return
@@ -1270,7 +1362,13 @@ class Structure(object):
 
         # store what type was bonded (ie. metallic, default etc)
         self.storetype = []
-        self.seed(name, 0)
+        # keeps track of the atoms in each SBU which form bonds with 
+        # other SBUs 
+        self.sbu_connections = {}
+        # master connection table
+        self.master_table = {}
+        ind=0
+        self.seed(name, ind)
 
     def store_angles(self):
         for sbu in self.sbu_array:
@@ -1316,7 +1414,7 @@ class Structure(object):
         if tol is not None:
             tol = tol
         else:
-            tol = 1 
+            tol = 0.5 
         # return dictionary of anti-parallel, unsaturated bonds within MOF
         # note, may be a problem if bonds are close but not exactly
         # anti-parallel
@@ -1598,8 +1696,7 @@ class Structure(object):
         """
         #TODO(pboyd): eventually we will need a bonding matrix of 
         # the entire MOF structure instead of these cheap fixes.
-        tol = 2.0
-        #tol=1.5
+        tol = 1.5
 
         coords = self.coordinates[sbu]
         # COM IS RELATED to a NAME>>>>.
@@ -1750,7 +1847,6 @@ class Structure(object):
             %(self.mof[sbu2].name, sbu2, bond2, sbu1,
               self.mof[sbu1].name, bond1))
 
-        self.join_sbus(sbu1, bond1, sbu2, bond2, True)
         # TODO(pboyd): add option to debug and apply if true.
         #self.xyz_debug()
         #dump = self.coordinate_dump()
@@ -1766,6 +1862,7 @@ class Structure(object):
         # rotate by Y vector
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
+        self.join_sbus(sbu1, bond1, sbu2, bond2, True)
         #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
@@ -1992,7 +2089,88 @@ class Structure(object):
         else:
             self.connectivity[sbu1][bond1] = -1*sbu2
             self.connectivity[sbu2][bond2] = -1*sbu1
+
+    def create_connect_table(self):
+        """
+        Determine atoms bonded between SBUs
+        """
+        # re-initialize table?
+        self.master_table = {}
+        for outter in range(len(self.connectivity)):
+            for bond, inner in enumerate(self.connectivity[outter]):
+                self.update_sbu_connections(outter, bond, inner)
+        atomcount = 0
+        # write out the bonding
+        for sbu in range(len(self.connectivity)):
+            type = self.storetype[sbu]
+            for idx1, connect in enumerate(self.mof[sbu].table[type]):
+                if (sbu, idx1) in self.sbu_connections.keys():
+                    # sum the atoms up that come before the
+                    # particular SBU
+                    bond = self.sbu_connections[(sbu, idx1)]
+                    bondedsbu = bond[0]
+                    bondedatm = bond[1]
+                    bondedlen = bond[2]
+                    atmsum = 0
+                    if bondedsbu > 0:
+                        atmsum = sum([len(i) for i in 
+                                  self.coordinates[:bondedsbu]])
+                    atmtup = [atomcount + idx1, atmsum + bondedatm]
+                    atmtup.sort()
+                    atmtup = tuple(atmtup)
+                    self.master_table[atmtup] = bondedlen
+
+                for idx2, dist in enumerate(connect):
+                    if dist != 0.:
+                        atmtup = [atomcount + idx1, atomcount + idx2]
+                        atmtup.sort()
+                        atmtup = tuple(atmtup)
+                        self.master_table[atmtup] = dist
+            atomcount += len(self.mof[sbu].table[type])
+
+    def update_sbu_connections(self, sbu1, bond1, sbu2):
+        """
+        Update the connectivity matrix of the MOF
+        """
         
+        # First check to see which atoms between SBUs are bonded
+        # shift by pbc
+        if self.pbcindex == 2:
+            coords = self.min_img_shift(self.connect_points[sbu1][bond1])
+        else:
+            coords = self.coordinates[:]
+        coord1 = coords[sbu1]
+        coord2 = coords[sbu2]
+        distmat = distance.cdist(coord1, coord2)
+
+        bond = []
+        # There is some leeway for bonding between SBUs so 
+        # a scaling factor is introduced to ensure a bond 
+        sf = 1.0
+        ncount = 0
+        while len(bond) == 0 and ncount < 6:
+            for idx1 in range(len(distmat)):
+                for idx2 in range(len(distmat[idx1])):
+                    # Determine atom types
+                    atom1 = self.atoms[sbu1][idx1]
+                    atom2 = self.atoms[sbu2][idx2]
+                    if distmat[idx1][idx2] < sf * bond_tolerance(
+                        atom1, atom2):
+                        bond.append((idx1, idx2, distmat[idx1][idx2]))
+
+            # increase the scaling factor by 5% 
+            sf *= 1.05
+            # scale 10 times before giving up
+            ncount += 1
+
+        # specify these bonds in the inter-sbu connectivity table
+        for i in bond:
+            self.sbu_connections[(sbu1, i[0])] = (sbu2, i[1], i[2])
+            self.sbu_connections[(sbu2, i[1])] = (sbu1, i[0], i[2])
+
+        if len(bond) == 0:
+            print "YIPES"
+
     def min_img_shift(self, vector, excl=None):
         """
         Shifts all coordinates of a MOF to within the minimum
@@ -2525,6 +2703,7 @@ def write_xyz(label, atoms, coords, cell, origin=None):
         origin = origin
     else:
         origin = np.zeros((3,3))
+
     xyzfile = open('%s.xyz' % label, 'a')
     xyzfile.write('%i\ncoordinate dump\n'%(len(coords)+3))
     for j in range(len(cell)):
@@ -2560,7 +2739,7 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("fortesting", options)
+    sbutest = Database("fortesting2", options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 
