@@ -196,6 +196,10 @@ class Generate(object):
                                     fnlcoords[:]
                                 newstr.atoms[idx] = newstr.atoms[idx] + \
                                         self.functional.atoms[group][:]
+
+                                newstr.atoms_fftype[idx] = \
+                                        newstr.atoms_fftype[idx] + \
+                                        self.functional.atoms_fftype[group][:]
                                 # add to sbu atoms as well
                                 sbu.atom_label[sbutype] += \
                                         self.functional.atoms[group][:]
@@ -212,8 +216,10 @@ class Generate(object):
                                     if iatm == fnlconnectatm:
                                         # add bonding info where the
                                         # connecting carbon is
-                                        bondarray = [0.] * (connect_atom) 
-                                        bondarray += [bond_length]
+                                        bondarray = [0.] * (connect_atom)
+                                        # single bond connects the
+                                        # functional group...
+                                        bondarray += [(bond_length, "S")]
                                         bondarray += [0.] * (sbusize - 
                                                          connect_atom - 1)
                                         bondarray += fnlcnt
@@ -231,7 +237,9 @@ class Generate(object):
                                     if jatm == connect_atom:
                                         bondarray = [0.] * (
                                                 fnlconnectatm)
-                                        bondarray += [bond_length]
+                                        # single bond connects the 
+                                        # functional group....
+                                        bondarray += [(bond_length, "S")]
                                         bondarray += [0.] * (
                                                len(self.functional.
                                                     table[group]) -
@@ -252,6 +260,8 @@ class Generate(object):
                         if sbu.internal_index in replace_dic.keys():
                             sortedH = list(replace_dic[sbu.internal_index])
                             sortedH.sort()
+                            [newstr.atoms_fftype[idx].pop(hydrogen)
+                             for hydrogen in reversed(sortedH)]
                             [newstr.coordinates[idx].pop(hydrogen)
                              for hydrogen in reversed(sortedH)]
                             [newstr.atoms[idx].pop(hydrogen) for 
@@ -273,6 +283,9 @@ class Generate(object):
                                      range(len(sbu.table[sbutype]))
                                      if i == hydrogen]
                      
+                        #print "\n\nNEW SBU"
+                        #for id, i in enumerate(sbu.table[sbutype]):
+                        #    print newstr.atoms[idx][id], i
                     newstr.create_connect_table()
                     self.finalize(newstr, group, replace_dic)
                     # write the file
@@ -699,22 +712,10 @@ class Generate(object):
 
     def finalize(self, struct, idx, hsubs=None):
         """ write the MOF file etc..."""
-        coords = [struct.coordinates[sbu][coord] for sbu in 
-                range(len(struct.coordinates)) for coord in 
-                range(len(struct.coordinates[sbu]))]
-
-        atoms = [struct.atoms[sbu][atom] for sbu in 
-                range(len(struct.atoms)) for atom in 
-                range(len(struct.atoms[sbu]))]
 
         # formatting class for calling the symmetry routines
         # TODO(pboyd): this is a bit of a hack job - should clean this.
-        ASEstruct = Atoms(symbols=atoms, positions=coords, 
-                cell=struct.cell, pbc=False)
-
         self.mofcount += 1
-        #filename = self.outdir + "%06i_structure"%(self.mofcount)
-        # no longer reference count
         filename = self.outdir + "str"
         for sbu in struct.sbu_array:
             if sbu.metal:
@@ -732,7 +733,7 @@ class Generate(object):
                         filename += "-%i"%i
         filename += "_%1s%i"%("f", idx)
         filename += "_%s"%(struct.name)
-        cif = CIF(ASEstruct, struct.master_table)
+        cif = CIF(struct, struct.master_table)
         cif.write_cif(filename)
         #struct.write_pdb(filename)
         return
@@ -954,7 +955,11 @@ class SBU(object):
         self.internal_index = 0
         # internal index to keep track of the bonding rules
         self.type = None
+        # atom_label contains the element symbols
         self.atom_label = {}
+        # atoms_fftype contains the forcefield atom types described in
+        # the input data
+        self.atoms_fftype = {}
         self.coordinates = {}
         # store history of functional group replacements
         self.fnlgrpchoice = []
@@ -974,6 +979,10 @@ class SBU(object):
         self.bondingatoms = {}
         self.COM = {}
 
+        # bondspec is the stored bonding tables under [table] in the
+        # input file
+        self.bondspecflag = False
+        self.bondspec = {}
         # store a connectivity table
         self.table = {} 
         # store indices which are Hydrogen atoms
@@ -1066,13 +1075,20 @@ class SBU(object):
             self.table[name] = [[0.] * numatms for i in xrange(numatms)]
             distmatrx = distance.cdist(self.coordinates[name], 
                                    self.coordinates[name])
-            for i in range(numatms):
-                for j in range(i+1, numatms):
-                    tol = bond_tolerance(self.atom_label[name][i], 
+            if not self.bondspecflag:
+                for i in range(numatms):
+                    for j in range(i+1, numatms):
+                        tol = bond_tolerance(self.atom_label[name][i], 
                                      self.atom_label[name][j])
-                    if (i != j) and (distmatrx[i,j] <= tol):
-                        self.table[name][i][j] = distmatrx[i,j]
-                        self.table[name][j][i] = distmatrx[j,i]
+                        if (i != j) and (distmatrx[i,j] <= tol):
+                            # default to single bonds "S" if not known.
+                            self.table[name][i][j] = (distmatrx[i,j], "S")
+                            self.table[name][j][i] = (distmatrx[j,i], "S")
+            else:
+                for i in self.bondspec[name].keys():
+                    for j in self.bondspec[name][i]:
+                        self.table[name][i][j[0]] = (distmatrx[i,j[0]],
+                                                        j[1])
         return 
 
     def init_arrays(self, data):
@@ -1104,10 +1120,28 @@ class SBU(object):
                 # append atom label dictionary
                 [self.atom_label.setdefault(name, []).append(
                     line.rstrip().split()[0]) for line in lines]
+                [self.atoms_fftype.setdefault(name, []).append(
+                    line.rstrip().split()[1]) for line in lines]
                 [self.coordinates.setdefault(name, []).append(
-                    [float(elem) for elem in line.rstrip().split()[1:4]]) 
+                    [float(elem) for elem in line.rstrip().split()[2:5]]) 
                     for line in lines]
-            
+        
+        if config.has_section("table"):
+            # no need to scan the SBU for distances after this
+            section = "table"
+            self.bondspecflag = True
+            for name in config.options(section):
+                lines = io.BytesIO(config.get(section, name)).readlines()
+                lines = [line.rstrip() for line in lines if line.rstrip()]
+                table = {}
+                for line in lines:
+                    line = line.split()
+                    table.setdefault(int(line[0]), []).append(
+                            (int(line[1]), line[2]))
+                    table.setdefault(int(line[1]), []).append(
+                            (int(line[0]), line[2]))
+                self.bondspec[name] = table
+
         if config.has_section("connectivity"):
             section = "connectivity"
             for name in config.options(section):
@@ -1179,24 +1213,6 @@ class SBU(object):
                 if comb1 == comb2:
                     return False
         return True
-
-    def add_functional_group(self, fnlgrp, sites):
-        """Adds functional group to the SBU"""
-        # return if no hydrogens to add to structure
-        if len(self.hydrogens) == 0:
-            return
-        info("%i functional groups added"%(len(sites)))
-        # randomly choose the H's to switch and switch them
-        for i in sites:
-            self.switch(i, copy.copy(fnlgrp))
-        sites.sort()
-        # remove the hydrogens from the SBU
-        for hydrogen in reversed(sites):
-            self.coordinates.pop(hydrogen) 
-            self.atomlabel.pop(hydrogen)
-            for idx, atom in enumerate(self.bondingatoms):
-                if hydrogen < atom:
-                    self.bondingatoms[idx] = atom - 1 
 
     def switch(self, hydrogen, fnlgrp):
         """ switch a hydrogen for a functional group"""
@@ -1359,7 +1375,9 @@ class Structure(object):
         self.pbcindex = -1
         # history of how the structure was made
         self.stringhist = []
-
+        
+        # store atom force field types
+        self.atoms_fftype = []
         # store what type was bonded (ie. metallic, default etc)
         self.storetype = []
         # keeps track of the atoms in each SBU which form bonds with 
@@ -1514,11 +1532,13 @@ class Structure(object):
             self.atoms.append(self.sbu_array[ind].atom_label[name][:])
             self.COM.append(self.sbu_array[ind].COM[name][:])
             self.storetype.append("metallic")
+            self.atoms_fftype.append(self.sbu_array[ind].atoms_fftype[name][:])
         else:
             self.coordinates.append(self.sbu_array[ind].coordinates["default"][:])
             self.atoms.append(self.sbu_array[ind].atom_label["default"][:])
             self.COM.append(self.sbu_array[ind].COM["default"][:])
             self.storetype.append("default")
+            self.atoms_fftype.append(self.sbu_array[ind].atoms_fftype["default"][:])
 
         nconnect = len(self.sbu_array[ind].connect_vector[name])
         self.connectivity.append([None]*nconnect)
@@ -2099,6 +2119,7 @@ class Structure(object):
         for outter in range(len(self.connectivity)):
             for bond, inner in enumerate(self.connectivity[outter]):
                 self.update_sbu_connections(outter, bond, inner)
+    
         atomcount = 0
         # write out the bonding
         for sbu in range(len(self.connectivity)):
@@ -2111,6 +2132,10 @@ class Structure(object):
                     bondedsbu = bond[0]
                     bondedatm = bond[1]
                     bondedlen = bond[2]
+                    # Always assume a Single bond between SBU's
+                    # TODO(pboyd): not robust and probably needs
+                    # to be changed.
+                    bondedtyp = "S"
                     atmsum = 0
                     if bondedsbu > 0:
                         atmsum = sum([len(i) for i in 
@@ -2118,7 +2143,7 @@ class Structure(object):
                     atmtup = [atomcount + idx1, atmsum + bondedatm]
                     atmtup.sort()
                     atmtup = tuple(atmtup)
-                    self.master_table[atmtup] = bondedlen
+                    self.master_table[atmtup] = (bondedlen, bondedtyp)
 
                 for idx2, dist in enumerate(connect):
                     if dist != 0.:
@@ -2132,13 +2157,16 @@ class Structure(object):
         """
         Update the connectivity matrix of the MOF
         """
-        
+       
+        # re-initialize self.sbu_connections{}
+        self.sbu_connections = {}
         # First check to see which atoms between SBUs are bonded
         # shift by pbc
         if self.pbcindex == 2:
             coords = self.min_img_shift(self.connect_points[sbu1][bond1])
         else:
             coords = self.coordinates[:]
+
         coord1 = coords[sbu1]
         coord2 = coords[sbu2]
         distmat = distance.cdist(coord1, coord2)
@@ -2147,8 +2175,9 @@ class Structure(object):
         # There is some leeway for bonding between SBUs so 
         # a scaling factor is introduced to ensure a bond 
         sf = 1.0
+        bonddebug = {}
         ncount = 0
-        while len(bond) == 0 and ncount < 6:
+        while len(bond) == 0 or ncount < 6:
             for idx1 in range(len(distmat)):
                 for idx2 in range(len(distmat[idx1])):
                     # Determine atom types
@@ -2156,8 +2185,8 @@ class Structure(object):
                     atom2 = self.atoms[sbu2][idx2]
                     if distmat[idx1][idx2] < sf * bond_tolerance(
                         atom1, atom2):
+                        bonddebug.setdefault(idx1, []).append(idx2)
                         bond.append((idx1, idx2, distmat[idx1][idx2]))
-
             # increase the scaling factor by 5% 
             sf *= 1.05
             # scale 10 times before giving up

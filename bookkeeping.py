@@ -106,10 +106,21 @@ class CIF(object):
     """
     Write cif files
     """
-    def __init__(self, atoms, connect_table=None):
+    def __init__(self, struct, connect_table=None):
         #self.tol = 1.267526
+        self.struct = struct
         self.tol = 0.01
-        self.atoms = atoms
+
+        coords = [struct.coordinates[sbu][coord] for sbu in
+                range(len(struct.coordinates)) for coord in 
+                range(len(struct.coordinates[sbu]))]
+        atoms = [struct.atoms[sbu][atom] for sbu in 
+                range(len(struct.atoms)) for atom in 
+                range(len(struct.atoms[sbu]))]
+
+        self.atoms= Atoms(symbols=atoms, positions=coords,
+                cell=struct.cell, pbc=True)
+
         self.symbols = []
         self.symdata = None
         self.symdata = spglib.get_symmetry_dataset(self.atoms, 
@@ -189,10 +200,10 @@ class CIF(object):
 
         lines += "_atom_site_label\n"
         lines += "_atom_site_type_symbol\n"
+        lines += "_atom_type_description\n"
         lines += "_atom_site_fract_x\n"
         lines += "_atom_site_fract_y\n"
         lines += "_atom_site_fract_z\n"
-
         
         equiv_atoms = self.symdata['equivalent_atoms']
         unique_atoms = list(set(equiv_atoms))
@@ -200,10 +211,13 @@ class CIF(object):
         unique_symbols = [self.atoms.symbols[i] for i in unique_atoms]
         unique_labels = self.add_labels(unique_symbols)
 
+        atoms_fftype = [atom for sbu in self.struct.atoms_fftype 
+                for atom in sbu]
+
         for atom in range(len(unique_atoms)):
-            line = [unique_labels[atom], unique_symbols[atom]] + \
-                    unique_coords[atom]
-            lines += "%-7s%-3s%10.5f%10.5f%10.5f\n"%(tuple(line))
+            line = [unique_labels[atom], unique_symbols[atom], 
+                    atoms_fftype[atom]] + unique_coords[atom]
+            lines += "%-7s%-5s%-6s%10.5f%10.5f%10.5f\n"%(tuple(line))
         
         if self.connect_table is not None:
             lines += "loop_\n"
@@ -215,7 +229,9 @@ class CIF(object):
             keys.sort()
             for bond in keys:
                 lines += "%-7s%-7s%10.5f%5s\n"%(unique_labels[bond[0]],
-                        unique_labels[bond[1]], self.connect_table[bond], "S")
+                        unique_labels[bond[1]], 
+                        self.connect_table[bond][0], 
+                        self.connect_table[bond][1])
 
         ciffile = open(filename, 'w')
         ciffile.writelines(lines)
