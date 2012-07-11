@@ -57,7 +57,7 @@ class Generate(object):
         self.nsbumax = 200
         # list to store strings
         self.strings = []
-        self.outdir = "output/"
+        self.outdir = "output." + database.dbfile + "/"
         self.bondtypes = {}
         self.gen_dir()
         # list of bonding with bondtypes for successful structures
@@ -103,6 +103,30 @@ class Generate(object):
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
 
+    def random_hydrogen_selection(self, sbus_withH):
+        """
+        Returns a tuple with a random selection of H atoms in
+        each SBU with hydrogens in it.
+        """
+
+        hydrogen_list = []
+        for sbu in sbus_withH:
+
+            numhydrogens = len(sbu.hydrogens)
+            randnumhyd = 0
+            while randnumhyd == 0:
+                randnumhyd = randrange(numhydrogens)
+            hdic = {}
+            while len(hdic.keys()) < randnumhyd:
+                hydrogen = choice(sbu.hydrogens)
+                hdic[hydrogen] = "?"
+
+            hydrogens = hdic.keys()
+            hydrogens.sort()
+            hydrogen_list.append(tuple(hydrogens))
+
+        return tuple(hydrogen_list)
+
     def apply_functional_groups(self):
         """
         Applies functional groups to built MOFs.
@@ -124,20 +148,20 @@ class Generate(object):
             return
         # generate a set of hydrogen replacements for each sbu in SBUs
         # to a limit of 1000.  After this many, just quit.
-        hydrogenlist = []
-        for sbu in sbus_withH:
-            #itertools chain, combinations
-            s = sbu.hydrogens
-            templist = \
-            sorted(itertools.chain.from_iterable(
-                itertools.combinations(s, r) for r in range(len(s)+1)))
-            templist = [i for i in templist if i]
-            hydrogenlist.append(templist)
-    
+        #hydrogenlist = []
+        #for sbu in sbus_withH:
+        #    #itertools chain, combinations
+        #    s = sbu.hydrogens
+        #    templist = \
+        #    sorted(itertools.chain.from_iterable(
+        #        itertools.combinations(s, r) for r in range(len(s)+1)))
+        #    templist = [i for i in templist if i]
+        #    hydrogenlist.append(templist)
+        
         # itertools.product ensures the first entry is from the first 
         # list and the second from the second list.  This way we can 
         # track which SBU's hydrogens we are manipulating.
-        combine = [i for i in itertools.product(*hydrogenlist)]
+        #combine = [i for i in itertools.product(*hydrogenlist)]
         
         groups = self.functional.atoms.keys()
         groups.sort()
@@ -149,14 +173,25 @@ class Generate(object):
             done = False
             while not done:
                 choicecount += 1
-                Hind = randrange(len(combine))
-                while Hind in ignore:
-                    Hind = randrange(len(combine))
-                    if len(ignore) == len(combine):
+                # randomly choose Hydrogens from each SBU
+                
+                select_H = self.random_hydrogen_selection(sbus_withH)
+                trial = 0
+                while select_H in ignore:
+                    trial += 1
+                    select_H = self.random_hydrogen_selection(sbus_withH)
+                    if trial == 3000:
                         done = True
                         break
-                select_H = combine[Hind]
-                ignore.append(Hind)
+                ignore.append(select_H)
+                #Hind = randrange(len(combine))
+                #while Hind in ignore:
+                #    Hind = randrange(len(combine))
+                #    if len(ignore) == len(combine):
+                #        done = True
+                #        break
+                #select_H = combine[Hind]
+                #ignore.append(Hind)
                 replace_dic = {}
                 for idx, sbu in enumerate(sbus_withH):
                     replace_dic[sbu.internal_index] = select_H[idx]
@@ -286,6 +321,8 @@ class Generate(object):
                         #print "\n\nNEW SBU"
                         #for id, i in enumerate(sbu.table[sbutype]):
                         #    print newstr.atoms[idx][id], i
+                    # re-initialize self.sbu_connections{}
+                    newstr.sbu_connections = {}
                     newstr.create_connect_table()
                     self.finalize(newstr, group, replace_dic)
                     # write the file
@@ -672,6 +709,8 @@ class Generate(object):
                         if len(set(sets)) < len(set(base)):
                             pass
                         else:
+                            # re-initialize self.sbu_connections{}
+                            copystruct.sbu_connections = {}
                             copystruct.create_connect_table()
                             copystruct.final_coords()
                             copystruct.mof_reorient()
@@ -2158,8 +2197,6 @@ class Structure(object):
         Update the connectivity matrix of the MOF
         """
        
-        # re-initialize self.sbu_connections{}
-        self.sbu_connections = {}
         # First check to see which atoms between SBUs are bonded
         # shift by pbc
         if self.pbcindex == 2:
@@ -2185,8 +2222,21 @@ class Structure(object):
                     atom2 = self.atoms[sbu2][idx2]
                     if distmat[idx1][idx2] < sf * bond_tolerance(
                         atom1, atom2):
-                        bonddebug.setdefault(idx1, []).append(idx2)
-                        bond.append((idx1, idx2, distmat[idx1][idx2]))
+                        if sbu1 == sbu2:
+                            if idx1 != idx2:
+                                # check to make sure the bonding isn't
+                                # already recorded in the table
+                                table = self.mof[sbu1].table[
+                                        self.storetype[sbu1]]
+                                if table[idx1][idx2] == 0. and \
+                                set((atom1, atom2)) != set("C"):
+                                    bonddebug.setdefault(idx1,
+                                    []).append(idx2)
+                                    bond.append((idx1, idx2,
+                                        distmat[idx1][idx2]))
+                        else:
+                            bonddebug.setdefault(idx1, []).append(idx2)
+                            bond.append((idx1, idx2, distmat[idx1][idx2]))
             # increase the scaling factor by 5% 
             sf *= 1.05
             # scale 10 times before giving up
@@ -2470,6 +2520,7 @@ class Database(object):
         self.options = options
         self.database = []
         self.readfile(file)
+        self.dbfile = file
 
     def readfile(self, filename):
         """populate databases with SBUs"""
@@ -2768,7 +2819,12 @@ def main():
     open('history.xyz', 'w')
     open('debug.xyz', 'w')
     options = Options()
-    sbutest = Database("fortesting2", options)
+
+    if len(sys.argv[1:]) > 0:
+        dbfile = sys.argv[1]
+    else:
+        dbfile = "petedatabase"
+    sbutest = Database(dbfile, options)
     genstruct = Generate(sbutest)
     genstruct.database_generation()
 

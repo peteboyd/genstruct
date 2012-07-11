@@ -13,8 +13,8 @@ class Functional_groups(object):
         """
         Read in library of functional groups, build arrays.
         """
-        #lib_file = "functional_groups.lib"
-        lib_file = "group.lib"
+        lib_file = "functional_groups.lib"
+        #lib_file = "group.lib"
         self.groups = ConfigParser()
         self.groups.read(lib_file)
         self.name = {}

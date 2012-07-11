@@ -170,12 +170,18 @@ class CIF(object):
                 method + "\n"
 
         prefix = "_symmetry"
+
+        space_group_name = "P1"
+        #space_group_name = self.symdata["international"]
         # space group name (under _symmetry)
         lines += "%-34s"%(prefix + "_space_group_name_H-M") + \
-                self.symdata["international"] + "\n"
+                space_group_name + "\n"
+        
+        space_group_number = "1"
+        #space_group_numer = str(self.symdata["number"])
         # space group number (under _symmetry)
         lines += "%-34s"%(prefix + "_Int_Tables_number") + \
-                str(self.symdata["number"]) + "\n"
+                space_group_number + "\n"
         # cell setting (under _symmetry)
 
         lines += "%-34s"%(prefix + "_cell_setting") + \
@@ -206,7 +212,9 @@ class CIF(object):
         lines += "_atom_site_fract_z\n"
         
         equiv_atoms = self.symdata['equivalent_atoms']
-        unique_atoms = list(set(equiv_atoms))
+        #unique_atoms = list(set(equiv_atoms))
+        # assume P1 for now
+        unique_atoms = range(len(self.atoms.symbols)) 
         unique_coords = [list(frac_coords[i]) for i in unique_atoms]
         unique_symbols = [self.atoms.symbols[i] for i in unique_atoms]
         unique_labels = self.add_labels(unique_symbols)

@@ -14,7 +14,6 @@ orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.41
 table = 
-   0
 [Cl]
 index = 2
 name = Chloro
@@ -25,7 +24,6 @@ orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.77
 table = 
-   0
 [Br]
 index = 3
 name = Bromo
@@ -36,7 +34,6 @@ orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 2.04
 table = 
-    0
 [I]
 index = 4
 name = Iodo
@@ -47,7 +44,6 @@ orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 2.12
 table = 
-    0
 [NH2]
 index = 5
 name = Amine
@@ -141,8 +137,8 @@ orientation = 0.0 1.0 0.0
 normal = 0.5878 0.0 0.8090
 carbon_bond = 1.51
 table =
-   0   1   D
-   0   2   D
+   0   1   A
+   0   2   A
 [HCO]
 index = 10
 name = Aldehyde
