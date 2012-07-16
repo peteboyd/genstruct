@@ -113,6 +113,10 @@ class Generate(object):
         for sbu in sbus_withH:
 
             numhydrogens = len(sbu.hydrogens)
+            # limit the number of hydrogen replacements to 10
+            # to prevent HUGE file names.
+            if numhydrogens > 10:
+                numhydrogens = 10
             randnumhyd = 0
             while randnumhyd == 0:
                 randnumhyd = randrange(numhydrogens)
@@ -139,7 +143,10 @@ class Generate(object):
         dic = {}
         # isolate unique SBUs
         for sbu in sbus_withH:
-            dic[sbu.internal_index] = sbu
+            if sbu.metal and sbu.index == 8 or sbu.index == 2:
+                pass
+            else:
+                dic[sbu.internal_index] = sbu
 
         sbus_withH = dic.values()
 
@@ -1382,6 +1389,7 @@ class Structure(object):
         self.coordinates = []
         self.atoms = []
         self.connect_points = []
+        self.fconnect = []
         self.connect_align = []
         self.connect_vector = []
         self.connect_sym = []
@@ -1566,7 +1574,7 @@ class Structure(object):
         """
         # check for default or metallic names
         size = len(self.connectivity)
-        if name == "metallic":
+        if name == "metallic" and not self.sbu_array[ind].metal:
             self.coordinates.append(self.sbu_array[ind].coordinates[name][:])
             self.atoms.append(self.sbu_array[ind].atom_label[name][:])
             self.COM.append(self.sbu_array[ind].COM[name][:])
@@ -1628,6 +1636,8 @@ class Structure(object):
         nbondvect = normalize(bondvector)
 
         # test by dot product, the absolute value should = 1
+        # NOTE: for metals of index 8 and 9, this should NOT
+        # be an absolute value
         dotprod = abs(dot(vector1, vector2))
         dottest = np.allclose(dotprod, 1., atol=tol)
 
@@ -1755,7 +1765,7 @@ class Structure(object):
         """
         #TODO(pboyd): eventually we will need a bonding matrix of 
         # the entire MOF structure instead of these cheap fixes.
-        tol = 1.5
+        tol = 1.4
 
         coords = self.coordinates[sbu]
         # COM IS RELATED to a NAME>>>>.
@@ -2038,12 +2048,10 @@ class Structure(object):
         convert fractional coordinates back to cartesian coordinates
         and store in self.coordinates.
         """
-        atmcnt = 0
         for isbu in range(len(self.coordinates)):
             for icoord in range(len(self.coordinates[isbu])):
                 coord = matrx_mult(self.fcoords[isbu][icoord], self.cell)
                 self.coordinates[isbu][icoord] = coord[:]
-                atmcnt += 1
 
     def final_coords(self):
         """
@@ -2053,7 +2061,9 @@ class Structure(object):
         firstsbu = self.mof[0]
         cellcentre = zeros1[:]
         # re-initialize the fcoords
+        # store connect_point fractionals
         self.fcoords = []
+        self.fconnect = []
         for k in self.cell:
             cellcentre = vect_add(cellcentre, scalar_div(2., k))
         shiftvect = vect_sub(cellcentre, self.COM[0])
@@ -2064,7 +2074,10 @@ class Structure(object):
                 self.coordinates[sbu][icoord] = vect_add(shiftvect, coord)
             sbufracts = [self.fractional(coord) for coord in 
                             self.coordinates[sbu]]
+            connectfracts = [self.fractional(coord) for coord in 
+                             self.connect_points[sbu]]
             self.fcoords.append(sbufracts)
+            self.fconnect.append(connectfracts)
         return
 
 
@@ -2121,6 +2134,8 @@ class Structure(object):
             for sbu in range(len(self.fcoords)):
                 self.fcoords[sbu] = [vect_sub([1.,1.,1.], i) for i
                         in self.fcoords[sbu]]
+                self.fconnect[sbu] = [vect_sub([1.,1.,1.],i) for i
+                        in self.fconnect[sbu]]
         # re-invert cell (is it necessary to invert before this?)
         self.invert_cell()
         return
@@ -2214,7 +2229,7 @@ class Structure(object):
         sf = 1.0
         bonddebug = {}
         ncount = 0
-        while len(bond) == 0 or ncount < 6:
+        while len(bond) == 0 and ncount < 6:
             for idx1 in range(len(distmat)):
                 for idx2 in range(len(distmat[idx1])):
                     # Determine atom types
@@ -2256,6 +2271,7 @@ class Structure(object):
         image of a vector.
         """
         fvect = matrx_mult(vector, self.icell)
+        #fvect = [i - math.floor(i) for i in fvect]
         mof_coords = []
         for sbu in range(len(self.fcoords)):
             if sbu != excl:
@@ -2265,8 +2281,8 @@ class Structure(object):
                     f = [fcoord[i] + round(diff[i]) 
                          for i in range(3)]
                     temp_fracts.append(f)
-                mof_coords.append([matrx_mult(fcoord, self.cell) for
-                    fcoord in temp_fracts])
+                mof_coords.append([matrx_mult(scaled, self.cell) for
+                    scaled in temp_fracts])
         # convert temp_fracts to cartesians
         return mof_coords
 

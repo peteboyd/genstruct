@@ -11,7 +11,7 @@ import copy
 from datetime import date
 from time import time
 from atoms import Atoms
-from pyspglib import spglib
+#from pyspglib import spglib
 from operations import *
 
 xyzbondfmt = "%s%12.5f%12.5f%12.5f " +\
@@ -123,8 +123,8 @@ class CIF(object):
 
         self.symbols = []
         self.symdata = None
-        self.symdata = spglib.get_symmetry_dataset(self.atoms, 
-                                                    symprec=self.tol)
+        #self.symdata = spglib.get_symmetry_dataset(self.atoms, 
+        #                                            symprec=self.tol)
         if connect_table is not None:
             self.connect_table = connect_table
         else:
@@ -154,8 +154,10 @@ class CIF(object):
             filename = name + ".cif"
 
         # get refined data from symmetry finding
-        cell, frac_coords, numbers = spglib.refine_cell(self.atoms,symprec=self.tol)
+        #cell, frac_coords, numbers = spglib.refine_cell(self.atoms,symprec=self.tol)
         
+        cell = self.atoms.cell
+        frac_coords = self.atoms.scaled_positions
         # determine cell parameters
         cellparams = self.get_cell_params(cell)
 
@@ -184,8 +186,10 @@ class CIF(object):
                 space_group_number + "\n"
         # cell setting (under _symmetry)
 
+        #lines += "%-34s"%(prefix + "_cell_setting") + \
+        #        cell_setting[self.symdata['number']] + "\n"
         lines += "%-34s"%(prefix + "_cell_setting") + \
-                cell_setting[self.symdata['number']] + "\n"
+                "triclinic\n"
 
         prefix = "_cell"
         # cell parameters (under _cell)
@@ -211,7 +215,7 @@ class CIF(object):
         lines += "_atom_site_fract_y\n"
         lines += "_atom_site_fract_z\n"
         
-        equiv_atoms = self.symdata['equivalent_atoms']
+        #equiv_atoms = self.symdata['equivalent_atoms']
         #unique_atoms = list(set(equiv_atoms))
         # assume P1 for now
         unique_atoms = range(len(self.atoms.symbols)) 
