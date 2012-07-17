@@ -136,13 +136,13 @@ def bond_tolerance(atom1, atom2):
     elif("V" in (atom1, atom2))and("O" in (atom1, atom2)):
         return 2.0
     elif("Ba" in (atom1, atom2))and("O" in (atom1, atom2)):
-        return 2.0
+        return 2.6
     elif("O" in (atom1, atom2)):
         return 0.
     elif(set((atom1, atom2)) == set("Ba")):
         return 4.6
     elif(set((atom1, atom2)) == set("H")):
-        return 1.
+        return 0.
     elif("I" in (atom1, atom2))and("C" in (atom1, atom2)):
         return 2.2
     elif("H" in (atom1, atom2)):
