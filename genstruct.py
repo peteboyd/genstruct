@@ -2229,7 +2229,7 @@ class Structure(object):
         sf = 1.0
         bonddebug = {}
         ncount = 0
-        while len(bond) == 0 and ncount < 6:
+        while len(bond) == 0 and ncount < 7:
             for idx1 in range(len(distmat)):
                 for idx2 in range(len(distmat[idx1])):
                     # Determine atom types
