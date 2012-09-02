@@ -11,8 +11,8 @@ import copy
 from datetime import date
 from time import time
 from atoms import Atoms
-#from pyspglib import spglib
 from operations import *
+from elements import *
 
 xyzbondfmt = "%s%12.5f%12.5f%12.5f " +\
              "atom_vector%12.5f%12.5f%12.5f " +\
@@ -37,7 +37,9 @@ class Log:
         else:
             self.file = file
         self.quiet = False
-        self.verbose = True 
+        self.verbose = False
+        if not self.quiet:
+            self.verbose = True
         self._init_logging()
         # set up writing to file and terminal
 
@@ -102,43 +104,97 @@ class ColouredConsoleHandler(logging.StreamHandler):
             subsequent_indent='\033[0m   %s' % text) + '\033[0m'
         logging.StreamHandler.emit(self, myrecord)
 
+class CSV(object):
+    """
+    writes a .csv file with data for the run.
+    """
+
+    def __init__(self):
+        self.columns = {}
+        self.data = {}
+        self.csvname = "default"
+
+    def add_data(self, name, **kwargs):
+        # check if new keys are being introduced.  Existing dictionary
+        # lists must be appended with None
+
+        # is name in self.data?
+        self.data.setdefault(name,[None]*len(self.columns.keys()))
+        # are the kwargs.keys() in self.columns.values()?
+        [self.columns.setdefault(k, len(self.columns.keys())) 
+            for k in kwargs.keys()]
+
+        for k, v in kwargs.items():
+            index = self.columns[k]
+            diff = (len(self.data[name])-1 - index)
+            if diff < 0:
+                self.data[name] += [None]*abs(diff)
+            self.data[name][index] = v
+
+    def set_name(self, name):
+        self.csvname = name
+
+    def write_file(self):
+        titles, data = "", ""
+
+        # name is the only immutable column.  This column will contain
+        # the names of the MOFs being reported.
+        titles += "#name,"
+        titles += ",".join([str(i) for i in self.columns.keys()])
+        titles += "\n"
+
+        length = len(self.columns.keys())
+
+        for k, v in self.data.items():
+            diff = len(v) - length
+            if diff < 0:
+                v = v + [None]*abs(diff)
+            data += str(k) + ","
+            data += ",".join([str(i) for i in v])
+            data += "\n"
+        lines = titles + data
+
+        csvfile = open(self.csvname + '.csv', "w")
+        csvfile.writelines(lines)
+        csvfile.close()
+        
 class CIF(object):
     """
     Write cif files
     """
     def __init__(self, struct, connect_table=None):
-        #self.tol = 1.267526
         self.struct = struct
-        self.tol = 0.01
-
-        coords = [struct.coordinates[sbu][coord] for sbu in
-                range(len(struct.coordinates)) for coord in 
-                range(len(struct.coordinates[sbu]))]
-        atoms = [struct.atoms[sbu][atom] for sbu in 
-                range(len(struct.atoms)) for atom in 
-                range(len(struct.atoms[sbu]))]
-
-        self.atoms= Atoms(symbols=atoms, positions=coords,
-                cell=struct.cell, pbc=True)
-
-        self.symbols = []
-        self.symdata = None
-        #self.symdata = spglib.get_symmetry_dataset(self.atoms, 
-        #                                            symprec=self.tol)
+        tol = 0.4
+        self.symmetry = Symmetry(struct, sym=True, 
+                                 tolerance=tol)
+        #self.symmetry = Symmetry(struct, sym=False, tolerance=tol)
         if connect_table is not None:
             self.connect_table = connect_table
         else:
             self.connect_table = None
         
-    def add_labels(self, symbols):
+    def add_labels(self):
         """
         Include numbered labels for each atom.
         """
+        equiv_atoms = self.symmetry.get_equiv_atoms()
         atomdic = {}
+        labeldic = {}
+        for atom in set(equiv_atoms):
+            label = self.symmetry.symbols[atom]
+            atomdic.setdefault(label,0)
+            atomdic[label] += 1
+            labeldic[atom] = label + str(atomdic[label])
 
+        return [labeldic[i] for i in equiv_atoms]
+
+    def add_general_labels(self):
+        """ add labels for atoms without symmetry considerations """
+        atoms = self.symmetry.symbols[:]
+        atomdic = {}
         labels = []
-        for atom in symbols:
-            atomdic.setdefault(atom,0)
+        for atom in atoms:
+            atomdic.setdefault(atom, 0)
             atomdic[atom] += 1
             labels.append(atom + str(atomdic[atom]))
 
@@ -153,12 +209,9 @@ class CIF(object):
         else:
             filename = name + ".cif"
 
-        # get refined data from symmetry finding
-        #cell, frac_coords, numbers = spglib.refine_cell(self.atoms,symprec=self.tol)
-        
-        cell = self.atoms.cell
-        frac_coords = self.atoms.scaled_positions
         # determine cell parameters
+
+        cell = self.symmetry.cell
         cellparams = self.get_cell_params(cell)
 
         lines = "data_" + name.split('/')[1] + "\n"
@@ -169,28 +222,31 @@ class CIF(object):
                 today.strftime("%A %d %B %Y") + "\n"
         # creation method (under _audit)
         lines += "%-34s"%(prefix + "_creation_method") + \
-                method + "\n"
+                method + "\n\n"
 
         prefix = "_symmetry"
 
-        space_group_name = "P1"
-        #space_group_name = self.symdata["international"]
+        space_group_name = self.symmetry.get_space_group_name()
         # space group name (under _symmetry)
         lines += "%-34s"%(prefix + "_space_group_name_H-M") + \
                 space_group_name + "\n"
-        
-        space_group_number = "1"
-        #space_group_numer = str(self.symdata["number"])
+       
+        space_group_number = self.symmetry.get_space_group_number()
         # space group number (under _symmetry)
         lines += "%-34s"%(prefix + "_Int_Tables_number") + \
-                space_group_number + "\n"
+                str(space_group_number) + "\n"
         # cell setting (under _symmetry)
-
-        #lines += "%-34s"%(prefix + "_cell_setting") + \
-        #        cell_setting[self.symdata['number']] + "\n"
         lines += "%-34s"%(prefix + "_cell_setting") + \
-                "triclinic\n"
+                cell_setting[space_group_number] + "\n"
 
+        lines += "\n"
+        # symmetry equivalent positions
+        lines += "loop_\n"
+        lines += prefix + "_equiv_pos_as_xyz\n"
+        for op in SYM_OPS[space_group_name]:
+            lines += "'%s, %s, %s'\n"%tuple([i for i in op.split(",")])
+
+        lines += "\n"
         prefix = "_cell"
         # cell parameters (under _cell)
         lines += "%-34s"%(prefix + "_length_a") + \
@@ -204,7 +260,7 @@ class CIF(object):
         lines += "%-34s"%(prefix + "_angle_beta") + \
                 "%(beta)-7.4f\n"%(cellparams)
         lines += "%-34s"%(prefix + "_angle_gamma") + \
-                "%(gamma)-7.4f\n"%(cellparams)
+                "%(gamma)-7.4f\n\n"%(cellparams)
         # fractional coordinates
         lines += "loop_\n"
 
@@ -214,41 +270,59 @@ class CIF(object):
         lines += "_atom_site_fract_x\n"
         lines += "_atom_site_fract_y\n"
         lines += "_atom_site_fract_z\n"
-        
-        #equiv_atoms = self.symdata['equivalent_atoms']
-        #unique_atoms = list(set(equiv_atoms))
-        # assume P1 for now
-        unique_atoms = range(len(self.atoms.symbols)) 
-        unique_coords = [list(frac_coords[i]) for i in unique_atoms]
-        unique_symbols = [self.atoms.symbols[i] for i in unique_atoms]
-        unique_labels = self.add_labels(unique_symbols)
+      
+        #unique_atoms = range(len(self.symmetry.symbols))
+        unique_atoms = list(set(self.symmetry.get_equiv_atoms()))
+        unique_coords = [list(self.symmetry.frac_coords[i]) for i in unique_atoms]
+        unique_symbols = [self.symmetry.symbols[i] for i in unique_atoms]
+        #general_labels = self.add_general_labels()
+        unique_labels = self.add_labels()
 
         atoms_fftype = [atom for sbu in self.struct.atoms_fftype 
                 for atom in sbu]
-
-        for atom in range(len(unique_atoms)):
-            line = [unique_labels[atom], unique_symbols[atom], 
-                    atoms_fftype[atom]] + unique_coords[atom]
-            lines += "%-7s%-5s%-6s%10.5f%10.5f%10.5f\n"%(tuple(line))
-        
+        len_orig = len([i for sbu in self.struct.atoms for i in sbu])
+        total_fftype = [atoms_fftype[i%len_orig] for i in range(
+            len(self.symmetry.frac_coords))]
+        unique_fftype = [total_fftype[i] for i in unique_atoms]
+        for idx, atom in enumerate(unique_atoms):
+            line = [unique_labels[atom], unique_symbols[idx], 
+                    unique_fftype[idx]] + unique_coords[idx]
+            lines += "%-7s%-6s%-5s%10.5f%10.5f%10.5f\n"%(tuple(line))
+        lines += "\n"
         if self.connect_table is not None:
+            connect_table = self.update_connect_table()
             lines += "loop_\n"
             lines += "_geom_bond_atom_site_label_1\n"
             lines += "_geom_bond_atom_site_label_2\n"
             lines += "_geom_bond_distance\n"
             lines += "_ccdc_geom_bond_type\n"
-            keys = self.connect_table.keys()
+            keys = connect_table.keys()
             keys.sort()
             for bond in keys:
                 lines += "%-7s%-7s%10.5f%5s\n"%(unique_labels[bond[0]],
-                        unique_labels[bond[1]], 
-                        self.connect_table[bond][0], 
-                        self.connect_table[bond][1])
+                    unique_labels[bond[1]], 
+                    connect_table[bond][0], 
+                    connect_table[bond][1])
 
         ciffile = open(filename, 'w')
         ciffile.writelines(lines)
         ciffile.close()
         return
+
+    def update_connect_table(self):
+
+        max = 0
+        equiv_atoms = {}
+        for idx, atom in enumerate(self.symmetry.get_equiv_atoms()):
+            equiv_atoms[idx] = atom
+        tempdic = {}
+        for i, j in self.connect_table.keys():
+            # determine how many more pairs exist that are
+            # equivalent
+            bonding = self.connect_table[(i,j)]
+            tempdic[(equiv_atoms[i], equiv_atoms[j])] = bonding
+
+        return tempdic
 
     def get_cell_params(self, cell):
         """ return alen, blen, clen, alpha, beta, gamma """
@@ -261,6 +335,94 @@ class CIF(object):
         cellparams['beta'] = calc_angle(cell[0], cell[2])*RAD2DEG
         cellparams['gamma'] = calc_angle(cell[0], cell[1])*RAD2DEG
         return cellparams
+
+class Symmetry(object):
+    """
+    Symmetry class to calculate the symmetry elements of a given MOF
+    """
+    def __init__(self, structure, sym=None, tolerance=None):
+
+        if tolerance is not None:
+            self.tol = tolerance
+        else:
+            self.tol = 0.01
+        self.cell = None
+        self.frac_coords = None
+        self.numbers = None
+        self.dataset = None
+        self.symbols = None
+
+        if sym:
+            self.sym = sym 
+        else:
+            self.sym = False
+
+        coords = [structure.coordinates[sbu][coord] for sbu in
+            range(len(structure.coordinates)) for coord in 
+            range(len(structure.coordinates[sbu]))]
+        atoms = [structure.atoms[sbu][atom] for sbu in 
+            range(len(structure.atoms)) for atom in 
+            range(len(structure.atoms[sbu]))]
+
+        self.atoms= Atoms(symbols=atoms, positions=coords,
+            cell=structure.cell, pbc=True)
+        #//////////////////////////////////////////////////
+        #self.cell = self.atoms.cell[:]
+        #self.frac_coords = self.atoms.scaled_positions[:]
+        #self.symbols = self.atoms.symbols[:]
+        #//////////////////////////////////////////////////
+        self.refine_cell()
+
+    def refine_cell(self):
+        """
+        get refined data from symmetry finding
+        """
+        if self.sym:
+            from pyspglib import spglib
+            self.cell, self.frac_coords, self.numbers = \
+                spglib.refine_cell(self.atoms,symprec=self.tol)
+            self.symbols = [ATOMIC_NUMBER[i] for i in self.numbers]
+            #dataset properties from the original self.atoms
+            #will not give the proper number of atoms etc...
+            self.atoms = Atoms(symbols=self.symbols,
+                               scaled_positions=self.frac_coords,
+                               cell=self.cell,
+                               pbc=True)
+            self.dataset = spglib.get_symmetry_dataset(self.atoms,
+                    symprec=self.tol)
+
+
+        else:
+            self.cell, self.frac_coords, self.numbers = \
+                self.atoms.cell, self.atoms.scaled_positions, None
+            self.symbols = self.atoms.symbols[:]
+
+    def get_space_group_name(self):
+
+        if self.sym:
+            #TEMP: pretend "P1"
+            #return "P1"
+            return self.dataset["international"] 
+        else:
+            return "P1"
+
+    def get_space_group_number(self):
+
+        if self.sym:
+            #TEMP: pretend "P1"
+            #return 1
+            return self.dataset["number"]
+        else:
+            return 1
+
+    def get_equiv_atoms(self):
+
+        if self.sym:
+            #TEMP: pretend "P1"
+            #return range(len(self.frac_coords))
+            return self.dataset["equivalent_atoms"]
+        else:
+            return range(len(self.atoms.symbols))
 
 
 class Time:
