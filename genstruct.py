@@ -69,6 +69,9 @@ class Generate(object):
         # functionalization
         self.functional = functional.Functional_groups()
 
+        # CSV file generation
+        self.csv = CSV()
+        self.csv.set_name(database.dbfile)
     def gen_dir(self):
         """creates directory for putting new MOF files"""
         try:
@@ -98,10 +101,12 @@ class Generate(object):
                 # add functional groups to built MOFs
                 if len(self.complete_mofs) > 0:
                     info("Applying functional groups...")
-                    self.apply_functional_groups()
+                    #self.apply_functional_groups()
 
         stopwatch.timestamp()
         info("Genstruct finished. Timing reports %f seconds."%(stopwatch.timer))
+
+        self.csv.write_file()
 
     def random_hydrogen_selection(self, sbus_withH):
         """
@@ -694,7 +699,6 @@ class Generate(object):
                     if copystruct.overlap_sbucheck(sbu):
                         copystruct.storetype.pop()
                     else:
-                        pbctest = copystruct.pbcindex == 1
                         bondtype = self.determine_bondtype(
                                 string, copystruct)
                         copystruct.sbu_check(sbu)
@@ -762,25 +766,40 @@ class Generate(object):
         # formatting class for calling the symmetry routines
         # TODO(pboyd): this is a bit of a hack job - should clean this.
         self.mofcount += 1
-        filename = self.outdir + "str"
+        basename = "str"
+        org_ind = []
         for sbu in struct.sbu_array:
             if sbu.metal:
                 type = "m"
+                met_ind = sbu.index
             else:
                 type = "o"
-            filename += "_%1s%i"%(type, sbu.index)
+                org_ind.append(sbu.index)
+
+            basename += "_%1s%i"%(type, sbu.index)
             if hsubs is not None:
                 if sbu.internal_index in hsubs.keys():
                     sortedH = list(hsubs[sbu.internal_index])
                     sortedH.sort()
                     sortedH = tuple(sortedH)
-                    filename += "-sub"
+                    basename += "-sub"
                     for i in sortedH:
-                        filename += "-%i"%i
-        filename += "_%1s%i"%("f", idx)
-        filename += "_%s"%(struct.name)
+                        basename += "-%i"%i
+        basename += "_%1s%i"%("f", idx)
+        basename += "_%s"%(struct.name)
+        filename = self.outdir + basename 
         cif = CIF(struct, struct.master_table)
         cif.write_cif(filename)
+        
+        sym_name = cif.symmetry.get_space_group_name()
+        sym_number = cif.symmetry.get_space_group_number()
+
+        self.csv.add_data(basename,
+                metal_index = met_ind,
+                organic_index1 = org_ind[0],
+                organic_index2 = org_ind[1],
+                h_m_symmetry_name=sym_name,
+                symmetry_number=sym_number)
         #struct.write_pdb(filename)
         return
 
@@ -1060,7 +1079,8 @@ class SBU(object):
                         # if the atom is within a certain distance 
                         # of a connect_point, then it is a bonding
                         # atom
-                        if [(idx, j) for j in self.connect_points[name]
+                        key = self.connect_points.keys()[0]
+                        if [(idx, j) for j in self.connect_points[key]
                                 if length(j, self.coordinates[name][idx])
                                     < 1.3]:
                             self.bondingatoms.setdefault(name,[]).\
@@ -1433,6 +1453,11 @@ class Structure(object):
         # master connection table
         self.master_table = {}
         ind=0
+        if (name == 'the') and ((self.sbu_array[ind].index == 6)
+                or(self.sbu_array[ind].index == 12)) \
+                and (sbu_array[ind].metal):
+            ind = choice([i for i in range(len(sbu_array))
+                              if not sbu_array[i].metal])
         self.seed(name, ind)
 
     def store_angles(self):
@@ -1479,7 +1504,7 @@ class Structure(object):
         if tol is not None:
             tol = tol
         else:
-            tol = 0.5 
+            tol = 0.6
         # return dictionary of anti-parallel, unsaturated bonds within MOF
         # note, may be a problem if bonds are close but not exactly
         # anti-parallel
@@ -1496,6 +1521,7 @@ class Structure(object):
             #info("non adj vector: (%6.3f,%6.3f,%6.3f)"%tuple(bondvects[bond]))
             adjusted_vect = self.min_img(bondvects[bond])
             #info("min img vector: (%6.3f, %6.3f, %6.3f)"%tuple(adjusted_vect))
+            #info("length %f"%length(adjusted_vect))
             if length(adjusted_vect) <= tol:
                 # bonds are close
                 try:
@@ -1765,55 +1791,70 @@ class Structure(object):
         """
         #TODO(pboyd): eventually we will need a bonding matrix of 
         # the entire MOF structure instead of these cheap fixes.
-        tol = 1.4
+        sf = 0.4
 
         coords = self.coordinates[sbu]
-        # COM IS RELATED to a NAME>>>>.
+        atoms = self.atoms[sbu]
         # SBU.coordinates is not shifted, only self.coordinates!!!
 
-        com = self.COM[sbu]
-        remaining_coords = []
-        if self.pbcindex == 2:
-            shifted_coords = self.min_img_shift(com)
-            for index in range(len(self.coordinates)):
-                name = self.storetype[index]
-                # remove bondingatoms...
-                try:
-                    bonding = self.mof[index].bondingatoms[name]
-                except:
-                    # Ba2+ case is special
-                    bonding = []
-                remaining_coords.append([shifted_coords[index][coord] 
-                    for coord in range(len(self.coordinates[index])) 
-                    if coord not in bonding and index != sbu])
+        #com = self.COM[sbu]
 
-        else:
-            # TODO(pboyd): probably should have some kind of minimum
-            # image shift if less than three periodic boundaries.
-            for index in range(len(self.coordinates)):
-                name = self.storetype[index]
-                # remove bondingatoms...
-                try:
-                    bonding = self.mof[index].bondingatoms[name]
-                except:
-                    # Ba2+ case is special
-                    bonding = []
-                remaining_coords.append([self.coordinates[index][coord] for coord in
-                        range(len(self.coordinates[index])) if coord not in
-                        bonding and index != sbu])
+        for atom in coords:
+            remaining_coords, remaining_atoms = [], []
+            # shift all coordinates to within the min
+            # img of the atom coordinates
+            if self.pbcindex == 2:
+                shifted_coords = self.min_img_shift(atom)
+                for index in range(len(self.coordinates)):
+                    name = self.storetype[index]
+                    try:
+                        # get bonding atoms from SBU.  These
+                        # atoms will be ignored in the overlap test
+                        bonding = self.mof[index].bondingatoms[name]
+                    except:
+                        # Ba2+ case is special.
+                        bonding = []
+                    remaining_coords.append([shifted_coords[index][coord]
+                            for coord in range(len(self.coordinates[index]))
+                            if coord not in bonding and index != sbu])
+                    remaining_atoms.append([self.atoms[index][atom]
+                        for atom in range(len(self.atoms[index]))
+                        if atom not in bonding and index != sbu])
+            else:
+                for index in range(len(self.coordinates)):
+                    name = self.storetype[index]
+                    try:
+                        # get bonding atoms from SBU.  These
+                        # atoms will be ignored in the overlap test
+                        bonding = self.mof[index].bondingatoms[name]
+                    except:
+                        # Ba2+ case is special
+                        bonding = []
 
+                    remaining_coords.append([self.coordinates[index][coord]
+                        for coord in range(len(self.coordinates[index]))
+                        if coord not in bonding and index != sbu])
+                    remaining_atoms.append([self.atoms[index][atom]
+                        for atom in range(len(self.atoms[index]))
+                        if atom not in bonding and index != sbu])
 
-        # make remaining_coords 1d
-        remaining_coords = [remaining_coords[i][j] for i in 
+            # make 1 dimensional list
+            remaining_coords = [remaining_coords[i][j] for i in 
                 range(len(remaining_coords)) for j in
                 range(len(remaining_coords[i])) if remaining_coords[i][j]]
-        distmat = distance.cdist(coords, remaining_coords)
+            remaining_atoms = [remaining_atoms[i][j] for i in 
+                range(len(remaining_atoms)) for j in
+                range(len(remaining_atoms[i])) if remaining_atoms[i][j]]
+            distmat = distance.cdist(coords, remaining_coords)
 
-        check = [(i, j) for i in range(len(distmat)) for j in
-                range(len(distmat[i])) if distmat[i][j] <= tol] 
-        if len(check) > 0:
-            info("Overlap found")
-            return True
+            # list check will be populated if a distance falls below
+            # the radii of two atoms multiplied by a scaling factor, sf
+            check = [(i, j) for i in range(len(distmat)) for j in
+                    range(len(distmat[i])) if distmat[i][j] <= 
+                    (Radii[atoms[i]]+Radii[remaining_atoms[j]])*sf] 
+            if len(check) > 0:
+                info("Overlap found")
+                return True
         return False
 
     def overlap_allcheck(self):
@@ -1917,14 +1958,14 @@ class Structure(object):
               self.mof[sbu1].name, bond1))
 
         # TODO(pboyd): add option to debug and apply if true.
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
@@ -1932,7 +1973,7 @@ class Structure(object):
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
         if self.pbcindex == 2:
@@ -2052,6 +2093,10 @@ class Structure(object):
             for icoord in range(len(self.coordinates[isbu])):
                 coord = matrx_mult(self.fcoords[isbu][icoord], self.cell)
                 self.coordinates[isbu][icoord] = coord[:]
+            for iconnect in range(len(self.connect_points[isbu])):
+                coord = matrx_mult(self.fconnect[isbu][iconnect],
+                                   self.cell)
+                self.connect_points[isbu][iconnect] = coord[:]
 
     def final_coords(self):
         """
