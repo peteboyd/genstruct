@@ -1958,14 +1958,14 @@ class Structure(object):
               self.mof[sbu1].name, bond1))
 
         # TODO(pboyd): add option to debug and apply if true.
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
@@ -1973,7 +1973,7 @@ class Structure(object):
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
         if self.pbcindex == 2:

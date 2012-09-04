@@ -173,3 +173,46 @@ def calc_angle(vect1, vect2):
     angle_coefficient =  min(max(dot12/(dist11*dist22), -1.0),1.0)
     return math.acos(angle_coefficient)
 
+def tofrac(x, largest_denom = 32):
+
+    negfrac = False
+    if not x >= 0:
+        negfrac = True
+        x = abs(x)
+
+    scaled = int(round(x * largest_denom))
+    whole, leftover = divmod(scaled, largest_denom)
+    if leftover:
+        while leftover % 2 == 0:
+            leftover >>= 1
+            largest_denom >>= 1
+    if negfrac:
+        return -1*whole, leftover, largest_denom
+
+    else:
+        return whole, leftover, largest_denom
+
+def to_x(val):
+    """ assumes integer value returned to x """
+    if val == 1:
+        return "x"
+    elif val == -1:
+        return "-x"
+    else:
+        return "%ix"%val
+
+def to_y(val):
+    if val == 1:
+        return "y"
+    elif val == -1:
+        return "-y"
+    else:
+        return "%iy"%val
+
+def to_z(val):
+    if val == 1:
+        return "z"
+    elif val == -1:
+        return "-z"
+    else:
+        return "%iz"%val

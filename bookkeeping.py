@@ -13,6 +13,7 @@ from time import time
 from atoms import Atoms
 from operations import *
 from elements import *
+import numpy as np
 
 xyzbondfmt = "%s%12.5f%12.5f%12.5f " +\
              "atom_vector%12.5f%12.5f%12.5f " +\
@@ -243,8 +244,12 @@ class CIF(object):
         # symmetry equivalent positions
         lines += "loop_\n"
         lines += prefix + "_equiv_pos_as_xyz\n"
-        for op in SYM_OPS[space_group_name]:
-            lines += "'%s, %s, %s'\n"%tuple([i for i in op.split(",")])
+        sym_ops = self.symmetry.get_space_group_operations()
+
+        for op in sym_ops:
+            lines += "'%s'\n"%op
+        #for op in SYM_OPS[space_group_name]:
+        #    lines += "'%s, %s, %s'\n"%tuple([i for i in op.split(",")])
 
         lines += "\n"
         prefix = "_cell"
@@ -405,6 +410,45 @@ class Symmetry(object):
             return self.dataset["international"] 
         else:
             return "P1"
+
+    def get_space_group_operations(self):
+
+        if self.sym:
+            return [self.convert_to_string((r, t)) 
+                    for r, t in zip(self.dataset['rotations'], 
+                                    self.dataset['translations'])]
+        else:
+            # P1
+            return ["x, y, z"]
+
+    def convert_to_string(self, operation):
+        """ takes a rotation matrix and translation vector and
+        converts it to string of the format "x, y, z" """
+
+        xfrac = tofrac(operation[1][0])
+        yfrac = tofrac(operation[1][1])
+        zfrac = tofrac(operation[1][2])
+        # xval
+        xint = sum(np.dot(operation[0],np.array([1, 0, 0]))) + xfrac[0]
+        if xfrac[1] != 0:
+            xstring = to_x(xint) + "+" + "%i/%i"%(xfrac[1],xfrac[2])
+        else:
+            xstring = to_x(xint)
+        # yval
+        yint = sum(np.dot(operation[0],np.array([0, 1, 0]))) + yfrac[0]
+        if yfrac[1] != 0:
+            ystring = to_y(yint) + " + " + "%i/%i"%(yfrac[1],yfrac[2])
+        else:
+            ystring = to_y(yint)
+
+        # zval
+        zint = sum(np.dot(operation[0],np.array([0, 0, 1]))) + zfrac[0]
+        if zfrac[1] != 0:
+            zstring = to_z(zint) + " + " + "%i/%i"%(zfrac[1],zfrac[2])
+        else:
+            zstring = to_z(zint)
+
+        return "%s, %s, %s"%(xstring, ystring, zstring) 
 
     def get_space_group_number(self):
 
