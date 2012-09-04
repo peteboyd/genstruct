@@ -194,7 +194,9 @@ def tofrac(x, largest_denom = 32):
 
 def to_x(val):
     """ assumes integer value returned to x """
-    if val == 1:
+    if val == 0:
+        return ""
+    elif val == 1:
         return "x"
     elif val == -1:
         return "-x"
@@ -202,7 +204,9 @@ def to_x(val):
         return "%ix"%val
 
 def to_y(val):
-    if val == 1:
+    if val == 0:
+        return ""
+    elif val == 1:
         return "y"
     elif val == -1:
         return "-y"
@@ -210,7 +214,9 @@ def to_y(val):
         return "%iy"%val
 
 def to_z(val):
-    if val == 1:
+    if val == 0:
+        return ""
+    elif val == 1:
         return "z"
     elif val == -1:
         return "-z"

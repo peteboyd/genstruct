@@ -768,10 +768,15 @@ class Generate(object):
         self.mofcount += 1
         basename = "str"
         org_ind = []
+        sym = True
         for sbu in struct.sbu_array:
             if sbu.metal:
                 type = "m"
                 met_ind = sbu.index
+                if sbu.index == 9 or sbu.index == 8:
+                    sym = True
+                if sbu.index == 10:
+                    sym = False
             else:
                 type = "o"
                 org_ind.append(sbu.index)
@@ -788,7 +793,7 @@ class Generate(object):
         basename += "_%1s%i"%("f", idx)
         basename += "_%s"%(struct.name)
         filename = self.outdir + basename 
-        cif = CIF(struct, struct.master_table)
+        cif = CIF(struct, connect_table=struct.master_table, sym=sym)
         cif.write_cif(filename)
         
         sym_name = cif.symmetry.get_space_group_name()

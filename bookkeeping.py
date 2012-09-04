@@ -163,10 +163,10 @@ class CIF(object):
     """
     Write cif files
     """
-    def __init__(self, struct, connect_table=None):
+    def __init__(self, struct, connect_table=None, sym=True):
         self.struct = struct
         tol = 0.4
-        self.symmetry = Symmetry(struct, sym=True, 
+        self.symmetry = Symmetry(struct, sym=sym, 
                                  tolerance=tol)
         #self.symmetry = Symmetry(struct, sym=False, tolerance=tol)
         if connect_table is not None:
@@ -237,6 +237,9 @@ class CIF(object):
         lines += "%-34s"%(prefix + "_Int_Tables_number") + \
                 str(space_group_number) + "\n"
         # cell setting (under _symmetry)
+
+        if space_group_number == 0:
+            print "space group naem", space_group_name
         lines += "%-34s"%(prefix + "_cell_setting") + \
                 cell_setting[space_group_number] + "\n"
 
@@ -384,18 +387,33 @@ class Symmetry(object):
         """
         if self.sym:
             from pyspglib import spglib
-            self.cell, self.frac_coords, self.numbers = \
-                spglib.refine_cell(self.atoms,symprec=self.tol)
-            self.symbols = [ATOMIC_NUMBER[i] for i in self.numbers]
-            #dataset properties from the original self.atoms
-            #will not give the proper number of atoms etc...
-            self.atoms = Atoms(symbols=self.symbols,
-                               scaled_positions=self.frac_coords,
-                               cell=self.cell,
-                               pbc=True)
-            self.dataset = spglib.get_symmetry_dataset(self.atoms,
-                    symprec=self.tol)
 
+            # an error occured with met9, org1, org9 whereby no
+            # symmetry info was being printed for some reason.
+            # thus a check is done after refining the structure.
+            cell, frac_coords, numbers = \
+                    spglib.refine_cell(self.atoms, symprec=self.tol)
+            symbols = [ATOMIC_NUMBER[i] for i in numbers]
+
+            atoms = Atoms(symbols=symbols, scaled_positions=frac_coords,
+                          cell=cell, pbc=True)
+
+            dataset = spglib.get_symmetry_dataset(atoms, symprec=self.tol)
+
+            if dataset["number"] == 0:
+                self.cell, self.frac_coords, self.numbers = \
+                        self.atoms.cell, self.atoms.scaled_positions,\
+                        None
+                self.symbols = self.atoms.symbols[:]
+                self.dataset = spglib.get_symmetry_dataset(self.atoms,
+                                 symprec=self.tol)
+            else:
+                self.cell = cell
+                self.frac_coords = frac_coords
+                self.numbers = numbers
+                self.symbols = symbols
+                self.atoms = atoms
+                self.dataset = dataset 
 
         else:
             self.cell, self.frac_coords, self.numbers = \
@@ -424,31 +442,31 @@ class Symmetry(object):
     def convert_to_string(self, operation):
         """ takes a rotation matrix and translation vector and
         converts it to string of the format "x, y, z" """
+       
+        # operation[0][0] is the first entry,
+        # operation[0][1] is the second entry,
+        # operation[0][2] is the third entry,
+        # operation[1][1, 2, 3] are the translations
 
-        xfrac = tofrac(operation[1][0])
-        yfrac = tofrac(operation[1][1])
-        zfrac = tofrac(operation[1][2])
-        # xval
-        xint = sum(np.dot(operation[0],np.array([1, 0, 0]))) + xfrac[0]
-        if xfrac[1] != 0:
-            xstring = to_x(xint) + "+" + "%i/%i"%(xfrac[1],xfrac[2])
-        else:
-            xstring = to_x(xint)
-        # yval
-        yint = sum(np.dot(operation[0],np.array([0, 1, 0]))) + yfrac[0]
-        if yfrac[1] != 0:
-            ystring = to_y(yint) + " + " + "%i/%i"%(yfrac[1],yfrac[2])
-        else:
-            ystring = to_y(yint)
+        fracs = [tofrac(i) for i in operation[1]]
+        string = ""
+        for idx, op in enumerate(operation[0]):
+            x,y,z = op
+            # note, this assumes 1, 0 entries in the rotation operation
+            str_conv = (to_x(x), "+"*abs(x)*(y) + to_y(y),
+                        "+"*max(abs(x),abs(y))*(z) + to_z(z))
+            # determine if translation needs to be included
+            for ind, val in enumerate((x,y,z)):
+                frac = ""
+                if val and fracs[ind][1] != 0:
+                    frac = "+%i/%i"%(fracs[ind][1], fracs[ind][2])
+                string += str_conv[ind] + frac
 
-        # zval
-        zint = sum(np.dot(operation[0],np.array([0, 0, 1]))) + zfrac[0]
-        if zfrac[1] != 0:
-            zstring = to_z(zint) + " + " + "%i/%i"%(zfrac[1],zfrac[2])
-        else:
-            zstring = to_z(zint)
+            # function to add comma delimiter if not the last entry
+            f = lambda p: p < 2 and ", " or ""
+            string += f(idx) 
 
-        return "%s, %s, %s"%(xstring, ystring, zstring) 
+        return string
 
     def get_space_group_number(self):
 
