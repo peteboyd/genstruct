@@ -773,10 +773,8 @@ class Generate(object):
             if sbu.metal:
                 type = "m"
                 met_ind = sbu.index
-                if sbu.index == 9 or sbu.index == 8:
-                    sym = True
-                if sbu.index == 10:
-                    sym = False
+                #if sbu.index == 10:
+                #    sym = False
             else:
                 type = "o"
                 org_ind.append(sbu.index)
@@ -890,6 +888,13 @@ class Generate(object):
         elif struct.name == "rht":
             if len(struct.connectivity) > 8:
                 return False
+        elif struct.name == "pcu":
+            if len(struct.connectivity) > 9:
+                return False
+        elif struct.name == "sra":
+            if len(struct.connectivity) > 6:
+                return False
+
         inter_metal_test = [sbu.connect_points.has_key("intermetal")
                 for sbu in sbu_list]
         pcu_metal_test = [sbu.connect_points.has_key("metallic") and \
@@ -1458,12 +1463,28 @@ class Structure(object):
         # master connection table
         self.master_table = {}
         ind=0
+
+        self.dot_test = True
+        self.set_dot_test_flag()
+        # fix for the incorrect symmetry found for the octatopic 
+        # metal linkers.
         if (name == 'the') and ((self.sbu_array[ind].index == 6)
                 or(self.sbu_array[ind].index == 12)) \
                 and (sbu_array[ind].metal):
             ind = choice([i for i in range(len(sbu_array))
                               if not sbu_array[i].metal])
+
         self.seed(name, ind)
+
+    def set_dot_test_flag(self):
+        """ 
+        Temp fix to ensure the right symmetry for the "pillar" MOFs
+        currently index 8 and 9 in the database.
+        """
+        for i in self.sbu_array:
+            #if i.metal and i.index == 8 or i.index == 9:
+            if i.metal and i.index == 9:
+                self.dot_test = False
 
     def store_angles(self):
         for sbu in self.sbu_array:
@@ -1669,7 +1690,10 @@ class Structure(object):
         # test by dot product, the absolute value should = 1
         # NOTE: for metals of index 8 and 9, this should NOT
         # be an absolute value
-        dotprod = abs(dot(vector1, vector2))
+        if self.dot_test:
+            dotprod = abs(dot(vector1, vector2))
+        else:
+            dotprod = (dot(vector1, vector2))
         dottest = np.allclose(dotprod, 1., atol=tol)
 
         # test by cross product, the vector should be (0,0,0)
@@ -1963,14 +1987,14 @@ class Structure(object):
               self.mof[sbu1].name, bond1))
 
         # TODO(pboyd): add option to debug and apply if true.
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
@@ -1978,7 +2002,7 @@ class Structure(object):
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
-        #self.xyz_debug()
+        self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
         if self.pbcindex == 2:

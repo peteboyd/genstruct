@@ -37,7 +37,7 @@ class Log:
             self.file = "genstruct.out"
         else:
             self.file = file
-        self.quiet = False
+        self.quiet = False 
         self.verbose = False
         if not self.quiet:
             self.verbose = True
