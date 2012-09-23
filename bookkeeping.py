@@ -7,7 +7,7 @@ reads and writes files, sets up logging
 import logging
 import sys
 import textwrap
-import copy
+from copy import copy, deepcopy
 from datetime import date
 from time import time
 from atoms import Atoms
@@ -37,7 +37,7 @@ class Log:
             self.file = "genstruct.out"
         else:
             self.file = file
-        self.quiet = False 
+        self.quiet = True  
         self.verbose = False
         if not self.quiet:
             self.verbose = True
@@ -78,7 +78,7 @@ class ColouredConsoleHandler(logging.StreamHandler):
         """Colourise and emit a record."""
         # Need to make a actual copy of the record
         # to prevent altering the message for other loggers
-        myrecord = copy.copy(record)
+        myrecord = copy(record)
         levelno = myrecord.levelno
         if levelno >= 50:  # CRITICAL / FATAL
             front = '\033[30;41m'  # black/red
@@ -163,16 +163,13 @@ class CIF(object):
     """
     Write cif files
     """
-    def __init__(self, struct, connect_table=None, sym=True):
+    def __init__(self, struct, connect_table=None, sym=True, tol=0.4):
         self.struct = struct
-        tol = 0.4
         self.symmetry = Symmetry(struct, sym=sym, 
-                                 tolerance=tol)
-        #self.symmetry = Symmetry(struct, sym=False, tolerance=tol)
+                                 symprec=tol)
+        #self.symmetry = Symmetry(struct, sym=False, symprec=tol)
         if connect_table is not None:
             self.connect_table = connect_table
-        else:
-            self.connect_table = None
         
     def add_labels(self):
         """
@@ -182,7 +179,7 @@ class CIF(object):
         atomdic = {}
         labeldic = {}
         for atom in set(equiv_atoms):
-            label = self.symmetry.symbols[atom]
+            label = self.symmetry._element_symbols[atom]
             atomdic.setdefault(label,0)
             atomdic[label] += 1
             labeldic[atom] = label + str(atomdic[label])
@@ -191,7 +188,7 @@ class CIF(object):
 
     def add_general_labels(self):
         """ add labels for atoms without symmetry considerations """
-        atoms = self.symmetry.symbols[:]
+        atoms = self.symmetry._element_symbols[:]
         atomdic = {}
         labels = []
         for atom in atoms:
@@ -212,7 +209,7 @@ class CIF(object):
 
         # determine cell parameters
 
-        cell = self.symmetry.cell
+        cell = self.symmetry._lattice.copy()
         cellparams = self.get_cell_params(cell)
 
         lines = "data_" + name.split('/')[1] + "\n"
@@ -239,7 +236,7 @@ class CIF(object):
         # cell setting (under _symmetry)
 
         if space_group_number == 0:
-            print "space group naem", space_group_name
+            print "space group name", space_group_name
         lines += "%-34s"%(prefix + "_cell_setting") + \
                 cell_setting[space_group_number] + "\n"
 
@@ -281,8 +278,8 @@ class CIF(object):
       
         #unique_atoms = range(len(self.symmetry.symbols))
         unique_atoms = list(set(self.symmetry.get_equiv_atoms()))
-        unique_coords = [list(self.symmetry.frac_coords[i]) for i in unique_atoms]
-        unique_symbols = [self.symmetry.symbols[i] for i in unique_atoms]
+        unique_coords = [list(self.symmetry._scaled_coords[i]) for i in unique_atoms]
+        unique_symbols = [self.symmetry._element_symbols[i] for i in unique_atoms]
         #general_labels = self.add_general_labels()
         unique_labels = self.add_labels()
 
@@ -290,7 +287,7 @@ class CIF(object):
                 for atom in sbu]
         len_orig = len([i for sbu in self.struct.atoms for i in sbu])
         total_fftype = [atoms_fftype[i%len_orig] for i in range(
-            len(self.symmetry.frac_coords))]
+            len(self.symmetry._scaled_coords))]
         unique_fftype = [total_fftype[i] for i in unique_atoms]
         for idx, atom in enumerate(unique_atoms):
             line = [unique_labels[atom], unique_symbols[idx], 
@@ -348,37 +345,23 @@ class Symmetry(object):
     """
     Symmetry class to calculate the symmetry elements of a given MOF
     """
-    def __init__(self, structure, sym=None, tolerance=None):
+    def __init__(self, structure, sym=True, symprec=1.e-5):
 
-        if tolerance is not None:
-            self.tol = tolerance
-        else:
-            self.tol = 0.01
-        self.cell = None
-        self.frac_coords = None
-        self.numbers = None
-        self.dataset = None
-        self.symbols = None
-
-        if sym:
-            self.sym = sym 
-        else:
-            self.sym = False
-
-        coords = [structure.coordinates[sbu][coord] for sbu in
-            range(len(structure.coordinates)) for coord in 
-            range(len(structure.coordinates[sbu]))]
-        atoms = [structure.atoms[sbu][atom] for sbu in 
-            range(len(structure.atoms)) for atom in 
-            range(len(structure.atoms[sbu]))]
-
-        self.atoms= Atoms(symbols=atoms, positions=coords,
-            cell=structure.cell, pbc=True)
-        #//////////////////////////////////////////////////
-        #self.cell = self.atoms.cell[:]
-        #self.frac_coords = self.atoms.scaled_positions[:]
-        #self.symbols = self.atoms.symbols[:]
-        #//////////////////////////////////////////////////
+        self.sym = sym
+        self.struct = structure
+        self._symprec = symprec
+        self._lattice = np.array([np.array(i) for i in structure.cell])
+        self._scaled_coords = np.array([np.array(i) for sbu in 
+                                        structure.fcoords for i in sbu])
+        #_angle_tol represents the tolerance of angle between lattice
+        # vectors in degrees.  Negative value invokes converter from
+        # symprec
+        self._angle_tol = -1.0
+        self._element_symbols = [i for sbu in structure.atoms 
+                                 for i in sbu]
+        self._numbers = np.array([ATOMIC_NUMBER.index(i) for i in 
+                                  self._element_symbols])
+        self.dataset = {}
         self.refine_cell()
 
     def refine_cell(self):
@@ -386,39 +369,88 @@ class Symmetry(object):
         get refined data from symmetry finding
         """
         if self.sym:
-            from pyspglib import spglib
+            import pyspglib._spglib as spg
+            # Temporary storage of structure info
+            _lattice = self._lattice.T.copy()
+            _scaled_coords = self._scaled_coords.copy()
+            _symprec = self._symprec
+            _angle_tol = self._angle_tol
+            _numbers = self._numbers.copy()
+            
+            
+            # find primitive  --- not necessary
+            #prim_lattice = ref_lattice.copy()
+            #prim_pos = ref_pos.copy()
+            #prim_numbers = ref_numbers.copy()
+            #num_atom_prim = spg.primitive(prim_lattice,
+            #                              prim_pos, 
+            #                              prim_numbers,
+            #                              _symprec,
+            #                              _angle_tol)
+            #else:
+            #if num_atom_prim != 0:
+            #    self._lattice = prim_lattice.T.copy()
+            #    self._scaled_coords = prim_pos[:num_atom_prim].copy()
+            #    self._numbers = prim_numbers[:num_atom_prim].copy()
+            #    self._element_symbols = [ATOMIC_NUMBER[i] for 
+            #            i in prim_numbers[:num_atom_prim]]
+            #else:
+            # get symmetry dataset
+            keys = ('number',
+                    'international',
+                    'hall',
+                    'transformation_matrix',
+                    'origin_shift',
+                    'rotations',
+                    'translations',
+                    'wyckoffs',
+                    'equivalent_atoms')
+            dataset = {}
+            # refine cell
+            num_atom = len(_scaled_coords)
+            ref_lattice = _lattice.copy()
+            ref_pos = np.zeros((num_atom * 4, 3), dtype=float)
+            ref_pos[:num_atom] = _scaled_coords.copy()
+            ref_numbers = np.zeros(num_atom * 4, dtype=int)
+            ref_numbers[:num_atom] = _numbers.copy()
+            num_atom_bravais = spg.refine_cell(ref_lattice,
+                                           ref_pos,
+                                           ref_numbers,
+                                           num_atom,
+                                           _symprec,
+                                           _angle_tol)
+
+            for key, data in zip(keys, spg.dataset(ref_lattice.T.copy(),
+                                               ref_pos.copy(),
+                                               ref_numbers.copy(),
+                                               _symprec,
+                                               _angle_tol)):
+                dataset[key] = data
 
             # an error occured with met9, org1, org9 whereby no
             # symmetry info was being printed for some reason.
             # thus a check is done after refining the structure.
-            cell, frac_coords, numbers = \
-                    spglib.refine_cell(self.atoms, symprec=self.tol)
-            symbols = [ATOMIC_NUMBER[i] for i in numbers]
 
-            atoms = Atoms(symbols=symbols, scaled_positions=frac_coords,
-                          cell=cell, pbc=True)
-
-            dataset = spglib.get_symmetry_dataset(atoms, symprec=self.tol)
-
-            if dataset["number"] == 0:
-                self.cell, self.frac_coords, self.numbers = \
-                        self.atoms.cell, self.atoms.scaled_positions,\
-                        None
-                self.symbols = self.atoms.symbols[:]
-                self.dataset = spglib.get_symmetry_dataset(self.atoms,
-                                 symprec=self.tol)
+            if dataset['number'] == 0:
+                info("WARNING - Bad Symmetry found!")
+                self.sym = False
             else:
-                self.cell = cell
-                self.frac_coords = frac_coords
-                self.numbers = numbers
-                self.symbols = symbols
-                self.atoms = atoms
-                self.dataset = dataset 
 
-        else:
-            self.cell, self.frac_coords, self.numbers = \
-                self.atoms.cell, self.atoms.scaled_positions, None
-            self.symbols = self.atoms.symbols[:]
+                self.dataset['number'] = dataset['number']
+                self.dataset['international'] = dataset['international'].strip()
+                self.dataset['hall'] = dataset['hall'].strip()
+                self.dataset['transformation_matrix'] = np.array(dataset['transformation_matrix'])
+                self.dataset['origin_shift'] = np.array(dataset['origin_shift'])
+                self.dataset['rotations'] = np.array(dataset['rotations'])
+                self.dataset['translations'] = np.array(dataset['translations'])
+                letters = "abcdefghijklmnopqrstuvwxyz"
+                self.dataset['wyckoffs'] = [letters[x] for x in dataset['wyckoffs']]
+                self.dataset['equivalent_atoms'] = np.array(dataset['equivalent_atoms'])
+                self._lattice = ref_lattice.T.copy()
+                self._scaled_coords = ref_pos[:num_atom_bravais].copy()
+                self._numbers = ref_numbers[:num_atom_bravais].copy()
+                self._element_symbols = [ATOMIC_NUMBER[i] for 
+                    i in ref_numbers[:num_atom_bravais]]
 
     def get_space_group_name(self):
 
@@ -447,7 +479,6 @@ class Symmetry(object):
         # operation[0][1] is the second entry,
         # operation[0][2] is the third entry,
         # operation[1][1, 2, 3] are the translations
-
         fracs = [tofrac(i) for i in operation[1]]
         string = ""
         for idx, op in enumerate(operation[0]):
@@ -484,7 +515,7 @@ class Symmetry(object):
             #return range(len(self.frac_coords))
             return self.dataset["equivalent_atoms"]
         else:
-            return range(len(self.atoms.symbols))
+            return range(len(self._element_symbols))
 
 
 class Time:
@@ -501,6 +532,7 @@ class Time:
         self.currtime = currtime
 
 cell_setting = {
+    0   :   "triclinic",
     1   :   "triclinic",       
     2   :   "triclinic",       
     3   :   "monoclinic",      

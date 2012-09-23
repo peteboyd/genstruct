@@ -12,7 +12,6 @@ import sys
 import math
 import re
 import numpy as np
-import copy
 import os
 import io
 import itertools
@@ -94,7 +93,7 @@ class Generate(object):
             for name in buildlist:
                 self.complete_mofs = []
                 basestructure = Structure(
-                        [copy.deepcopy(self.database[i])
+                        [deepcopy(self.database[i])
                         for i in subset],name)
                 self.unique_bondtypes(basestructure)
                 self.exhaustive_generation(basestructure)
@@ -209,7 +208,7 @@ class Generate(object):
                     replace_dic[sbu.internal_index] = select_H[idx]
                 # select a structure from self.complete_mofs
                 rand = randrange(len(self.complete_mofs))
-                newstr = copy.deepcopy(self.complete_mofs[rand])
+                newstr = deepcopy(self.complete_mofs[rand])
                 ovlp = False
                 for idx, sbu in enumerate(newstr.mof):
                     sbutype = newstr.storetype[idx]
@@ -665,7 +664,7 @@ class Generate(object):
         """
         Randomly places a SBU anywhere
         """
-        struct.mof.append(copy.deepcopy(dataset[isbu]))
+        struct.mof.append(deepcopy(dataset[isbu]))
         struct.connectivity.append([None]*len(dataset[isbu].connectpoints))
         # TODO(pboyd): randomly perturb the coordinates
 
@@ -692,7 +691,7 @@ class Generate(object):
                 except:
                     done = True
                 if self.valid_string(string, struct):
-                    copystruct = copy.deepcopy(struct)
+                    copystruct = deepcopy(struct)
                     sbu = len(copystruct.mof) 
                     copystruct.apply_string(string)
                     #if copystruct.overlap_allcheck():
@@ -729,7 +728,7 @@ class Generate(object):
                             self.finalize(copystruct, 0)
                             # export the MOF for functional group
                             # placement
-                            self.complete_mofs.append(copy.deepcopy(copystruct))
+                            self.complete_mofs.append(deepcopy(copystruct))
                             info("Structure Generated!")
                             copystruct.origins = zeros3[:]
                             structcount += 1
@@ -1978,7 +1977,7 @@ class Structure(object):
         # TODO(pboyd): change this from a copy of the SBU class to an
         # "import" of the relevant data.
         self.import_sbu(sbutype2, name)
-        self.mof.append(copy.deepcopy(self.sbu_array[sbutype2]))
+        self.mof.append(deepcopy(self.sbu_array[sbutype2]))
         sbu2 = len(self.mof) - 1
 
         info(
@@ -1987,14 +1986,14 @@ class Structure(object):
               self.mof[sbu1].name, bond1))
 
         # TODO(pboyd): add option to debug and apply if true.
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
         # align sbu's by Z vector
         self.sbu_align(sbu1, bond1, sbu2, bond2)
 
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
 
@@ -2002,7 +2001,7 @@ class Structure(object):
         self.bond_align(sbu1, bond1, sbu2, bond2, angle) 
 
         self.join_sbus(sbu1, bond1, sbu2, bond2, True)
-        self.xyz_debug()
+        #self.xyz_debug()
         #dump = self.coordinate_dump()
         #write_xyz("history", dump[0], dump[1], self.cell, self.origins)
         if self.pbcindex == 2:
