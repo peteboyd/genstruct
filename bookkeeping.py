@@ -11,6 +11,7 @@ from copy import copy, deepcopy
 from datetime import date
 from time import time
 from atoms import Atoms
+from logging import warning, debug, error, info, critical
 from operations import *
 from elements import *
 import numpy as np
@@ -37,7 +38,7 @@ class Log:
             self.file = "genstruct.out"
         else:
             self.file = file
-        self.quiet = True  
+        self.quiet = False 
         self.verbose = False
         if not self.quiet:
             self.verbose = True
@@ -406,33 +407,40 @@ class Symmetry(object):
                     'wyckoffs',
                     'equivalent_atoms')
             dataset = {}
-            # refine cell
-            num_atom = len(_scaled_coords)
-            ref_lattice = _lattice.copy()
-            ref_pos = np.zeros((num_atom * 4, 3), dtype=float)
-            ref_pos[:num_atom] = _scaled_coords.copy()
-            ref_numbers = np.zeros(num_atom * 4, dtype=int)
-            ref_numbers[:num_atom] = _numbers.copy()
-            num_atom_bravais = spg.refine_cell(ref_lattice,
+
+            dataset['number'] = 0
+            while dataset['number'] == 0:
+
+                # refine cell
+                num_atom = len(_scaled_coords)
+                ref_lattice = _lattice.copy()
+                ref_pos = np.zeros((num_atom * 4, 3), dtype=float)
+                ref_pos[:num_atom] = _scaled_coords.copy()
+                ref_numbers = np.zeros(num_atom * 4, dtype=int)
+                ref_numbers[:num_atom] = _numbers.copy()
+                num_atom_bravais = spg.refine_cell(ref_lattice,
                                            ref_pos,
                                            ref_numbers,
                                            num_atom,
                                            _symprec,
                                            _angle_tol)
+                for key, data in zip(keys, spg.dataset(ref_lattice.copy(),
+                                        ref_pos[:num_atom_bravais].copy(),
+                                    ref_numbers[:num_atom_bravais].copy(),
+                                                _symprec,
+                                                _angle_tol)):
+                    dataset[key] = data
 
-            for key, data in zip(keys, spg.dataset(ref_lattice.T.copy(),
-                                               ref_pos.copy(),
-                                               ref_numbers.copy(),
-                                               _symprec,
-                                               _angle_tol)):
-                dataset[key] = data
+                _symprec = _symprec * 0.5
 
             # an error occured with met9, org1, org9 whereby no
             # symmetry info was being printed for some reason.
             # thus a check is done after refining the structure.
 
             if dataset['number'] == 0:
-                info("WARNING - Bad Symmetry found!")
+                warning("WARNING - Bad Symmetry found! organic %i and %i"
+                        %(tuple([i.index for i in self.struct.sbu_array if
+                            not i.metal])))
                 self.sym = False
             else:
 

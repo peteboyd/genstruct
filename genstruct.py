@@ -734,7 +734,7 @@ class Generate(object):
                             structcount += 1
 
                     # Give up if number of structures becomes too big.
-                    if len(self.moflib) > 12000:
+                    if len(self.moflib) > 122000:
                         done = True
                         break
                     # constraints and conditions related to specific
@@ -1068,7 +1068,6 @@ class SBU(object):
         self.init_arrays(data)
 
         self.centre_of_mass()
-        self.COM_shift()
         self.find_hydrogen_atoms()
         # identify the atoms in the SBU which are involved in connecting
         # the MOF (for disregarding overlap considerations)
@@ -1360,19 +1359,6 @@ class SBU(object):
             self.mass = bottom
             self.COM[name] = scalar_div(bottom, top)
         return
-
-    def COM_shift(self):
-        """
-        Shifts all the coordinates such that the centre of mass (COM)
-        is at the origin.
-        This will make it easier for geometry shifts and rotations
-        """
-        for name in self.coordinates:
-            for icoord, xyz in enumerate(self.coordinates[name]):
-                self.coordinates[name][icoord] = vect_sub(xyz, 
-                                                self.COM[name])
-
-            self.COM[name] = zeros1[:]
 
     def xyz_debug(self, filename=None):
         """
