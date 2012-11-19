@@ -1,177 +1,127 @@
 #!/usr/bin/env python
 import math
+from scipy import weave
+import scipy
 from scipy.spatial import distance
-
+import numpy as np
+import sys
 """
-Module to accompany genstruct.  This will contain the operations needed
-to reproduce numpy operations.  The idea is to eventually phase out
-numpy from genstruct.
+Module to accompany genstruct.  Contains functions to do a diverse
+range of things.
 """
 
 # Constants
 
 RAD2DEG = 180./math.pi
 DEG2RAD = math.pi/180.
-zeros3 = [[0.,0.,0.],[0.,0.,0.],[0.,0.,0.]]
-zeros1 = [0.,0.,0.]
-zeros6 = [0.,0.,0.,0.,0.,0.]
-identity3 = [[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]]
-def vect_length(vect1, vect2):
-    """
-    Gives the distance between two vectors
-    """
-    dvect = vect_sub(vect1, vect2)
-    dprod = dot(dvect, dvect)
-    return math.sqrt(dprod)
 
-def vect_add(vect1, vect2):
+def rotation_matrix2(angle, direction, point=None):
     """
-    Adds elements of each vector together.
+    returns a matrix to rotate about an axis defined by a point and
+    direction.
     """
-    return [i+j for i, j in zip(vect1, vect2)]
+    sina = np.sin(angle)
+    cosa = np.cos(angle)
+    direction = np.array(direction[:3])/length(direction[:3])
 
-def vect_sub(vect1, vect2):
-    """
-    Subtracts elements of each vector together.
-    """
-    return [i-j for i, j in zip(vect1, vect2)]
+    R = np.diag([cosa, cosa, cosa])
+    R += np.outer(direction, direction) * (1.0 - cosa)
+    direction *= sina
+    R += np.array([[0., -direction[2], direction[1]],
+                   [direction[2], 0., -direction[0]],
+                   [-direction[1], direction[0], 0.]])
+    M = np.identity(4)
+    M[:3,:3] = R
+    if point is not None:
+        point = np.array(point[:3], dtype=np.float64, copy=False)
+        M[:3,3] = point - np.dot(R, point)
+    return M
 
-def matrx_sub(mat1, mat2):
-    """
-    Subtracts one matrix from another.
-    """
-    return [vect_sub(i,j) for i, j in zip(mat1, mat2)]
+def unit_vector(vector):
+    return vector / length(vector)
 
-def scalar_mult(scalar, vector):
+def rotation_matrix(axis, angle, point=None):
     """
-    Returns a scalar multiple of the vector.
+    returns a 3x3 rotation matrix based on the 
+    provided axis and angle
     """
-    return [i*scalar for i in vector]
+    axis = np.array(axis)
+    axis = axis / length(axis)
+    a = np.cos(angle / 2.)
+    b, c, d = -axis*np.sin(angle / 2.)
 
-def scalar_div(scalar, vector):
-    """
-    Returns a scalar quotient of the vector.
-    """
-    return [i/scalar for i in vector]
+    R = np.array([[a*a + b*b - c*c - d*d, 2*(b*c - a*d), 2*(b*d + a*c)],
+                  [2*(b*c + a*d), a*a + c*c - b*b - d*d, 2*(c*d - a*b)],
+                  [2*(b*d - a*c), 2*(c*d + a*b), a*a + d*d - b*b - c*c]])
+    
+    M = np.identity(4)
+    M[:3,:3] = R
+    if point is not None:
+        # rotation not around origin
+        point = np.array(point[:3], dtype=np.float64, copy=False)
+        M[:3,3] = point - np.dot(R, point)
 
-def matrx_mult(vector, matrix):
-    """
-    Returns a vector resulting from multiplication of a vector
-    with a matrix.
-    """
-    #TODO(pboyd): add tests to see if the matrix and vector
-    # can be multiplied.
-    transmat = transpose(matrix)
-    return [dot(vector, i) for i in transmat]
+    return M
 
-def transpose(matrix):
-    """Returns a transpose of a matrix."""
-    #TODO(pboyd): make sure the matrix is square
-    return [list(i) for i in zip(*matrix)]
+def parallel(vector1, vector2, tol=0.01):
 
-def dot(vector1, vector2):
-    """
-    returns the dot product of two vectors.
-    """
-    return sum([x*y for x,y in zip(vector1, vector2)])
+    vector1 = vector1[:3]/length(vector1[:3])
+    vector2 = vector2[:3]/length(vector2[:3])
 
-def inner(vector1, vector2):
-    """
-    Returns the inner product of two vectors.
-    """
-    return [x*y for x,y in zip(vector1, vector2)]
+    return np.allclose(np.dot(vector1, vector2), 1., atol=tol)
 
-def cross(vector1, vector2):
+def rotation_matrix_weave(axis, angle):
     """
-    Returns the cross produc of two vectors.
-    3-D only for now!!
+    uses c library to compute rotation matrix,
+    apparently a 20-fold decrease in time
+    NOTE: this fails with error on Wooki.  Keeping code for now...
     """
-    v0 = (vector1[1] * vector2[2]) - (vector1[2] * vector2[1])
-    v1 = -1.*((vector1[0] * vector2[2]) - (vector1[2] * vector2[0]))
-    v2 = (vector1[0] * vector2[1]) - (vector1[1] * vector2[0])
-    return [v0, v1, v2]
+    R = np.identity(3)
+    axis = np.array(axis)
+    axis = axis / length(axis)
 
-def bond_tolerance(atom1, atom2):
-    """
-    returns a tolerance value for atom - atom distances
-    case specific
-    """
-    # This function will need some elaboration
-    # TODO(pboyd): these conditions are not robust and
-    # should be changed when the code becomes bigger
-    # G is the metal - metal bond for linked chains
-    if("G" in (atom1, atom2) and 
-        (("Y" not in (atom1, atom2))and("Z" not in (atom1, atom2)))):
-        return 1.35
-    elif("X" in (atom1, atom2) and 
-        (("Y" not in (atom1, atom2))and("Z" not in (atom1, atom2)))):
-        return 0.97
-    elif("G" in (atom1, atom2) or "X" in (atom1, atom2))and \
-        (("Y" in (atom1, atom2))or("Z" in (atom1, atom2))):
-        return 1.1
-    elif("Y" in (atom1, atom2))and("G" not in (atom1, atom2) 
-            or "X" not in (atom1,atom2)):
-        return 0.
-    elif("Z" in (atom1, atom2))and("G" not in (atom1, atom2) 
-            or "X" not in (atom1,atom2)):
-        return 0.
-    elif("Br" in (atom1, atom2))and("J" in (atom1, atom2)):
-        return 2.0
-    elif("I" in (atom1, atom2))and("J" in (atom1, atom2)):
-        return 2.5
-    elif("Cl" in (atom1, atom2))and("J" in (atom1, atom2)):
-        return 1.8
-    elif("H" in (atom1, atom2))and("C" in (atom1, atom2)):
-        return 1.15
-    elif("P" in (atom1, atom2))and("C" in (atom1, atom2)):
-        return 1.9
-    elif(set((atom1, atom2)) == set("C")):
-        return 1.6
-    elif("Cu" in (atom1, atom2))and("N" in (atom1,  atom2)):
-        return 2.0
-    elif("Zn" in (atom1, atom2))and("N" in (atom1, atom2)):
-        return 2.0
-    elif("In" in (atom1, atom2))and("O" in (atom1, atom2)):
-        return 2.0
-    elif("V" in (atom1, atom2))and("O" in (atom1, atom2)):
-        return 2.0
-    elif("Ba" in (atom1, atom2))and("O" in (atom1, atom2)):
-        return 2.6
-    elif("O" in (atom1, atom2)):
-        return 0.
-    elif(set((atom1, atom2)) == set("Ba")):
-        return 4.6
-    elif(set((atom1, atom2)) == set("H")):
-        return 0.
-    elif("I" in (atom1, atom2))and("C" in (atom1, atom2)):
-        return 2.2
-    elif("H" in (atom1, atom2)):
-        return 0.
-    else:
-        return 0. 
+    support = '#include <math.h>'
 
-def length(coord1, coord2=None):
+    code = """
+        double x = sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+        double a = cos(angle / 2.0);
+        double b = -(axis[0] / x) * sin(angle / 2.0);
+        double c = -(axis[1] / x) * sin(angle / 2.0);
+        double d = -(axis[2] / x) * sin(angle / 2.0);
+
+        mat[0] = a*a + b*b - c*c - d*d;
+        mat[1] = 2 * (b*c - a*d)
+        mat[2] = 2 * (b*d + a*c)
+
+        mat[3*1 + 0] = 2*(b*c + a*d);
+        mat[3*1 + 1] = a*a + c*c - b*b - d*d;
+        mat[3*1 + 2] = 2*(c*d - a*b);
+
+        mat[3*2 + 0] = 2*(b*d - a*c);
+        mat[3*2 + 1] = 2*(c*d + a*b);
+        mat[3*2 + 2] = a*a + d*d - b*b - c*c;
+        """
+
+    weave.inline(code, ['axis', 'angle', 'R'], support_code=support,
+                     libraries=['m'])
+    return R
+
+
+def length(coord1, coord2=np.zeros(3)):
     """ 
     Returns the length between two vectors.
     If only one vector is specified, it returns
     the length of that vector from the origin
     """
-    if coord2 is not None:
-        coord2 = coord2
-    else:
-        coord2 = zeros1[:]
-    dist = distance.cdist([coord1], [coord2], 'euclidean')[0][0]
-    return dist 
+    coord1 = np.array(coord1)
+    diff = coord2[:3] - coord1[:3]
+    return np.sqrt(np.dot(diff, diff.conj()))
 
-def calc_angle(vect1, vect2):
-    """ determines angle between vector1 and vector2"""
-    dot12 = dot(vect1, vect2) 
-    dist11 = length(vect1)
-    dist22 = length(vect2)
-    # clamps the angle coefficient to a min or max of -1, 1 so no 
-    # error is returned when calculating the acos.
-    angle_coefficient =  min(max(dot12/(dist11*dist22), -1.0),1.0)
-    return math.acos(angle_coefficient)
+def calc_angle(coord1, coord2):
+    ic1 = coord1[:3] / length(coord1[:3])
+    ic2 = coord2[:3] / length(coord2[:3])
+    a = min(max(np.dot(ic1, ic2), -1.0), 1.0)
+    return math.acos(a)
 
 def tofrac(x, largest_denom = 32):
 
