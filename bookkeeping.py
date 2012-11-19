@@ -10,7 +10,6 @@ import textwrap
 from copy import copy, deepcopy
 from datetime import date
 from time import time
-from atoms import Atoms
 from logging import warning, debug, error, info, critical
 from operations import *
 from elements import *
@@ -30,6 +29,15 @@ xyzatomfmt = "%s%12.5f%12.5f%12.5f\n"
 #pdb format determined from description in pdb document
 pdbatmfmt = "%-6s%5i%5s%1s%3s%2s%4i%1s%11.3f%8.3f%8.3f%6.2f%6.2f%12s%2s\n"
 pdbcellfmt = "%-6s%9.3f%9.3f%9.3f%7.2f%7.2f%7.2f P1\n"
+
+class Multidict(dict):
+    """ change keys for reading input with ConfigParser """
+    _unique = ""
+    def __setitem__(self, key, val):
+        if isinstance(val, dict):
+            self._unique += "_i"
+            key += str(self._unique)
+        dict.__setitem__(self, key, val)
 
 class Log:
 
@@ -164,19 +172,15 @@ class CIF(object):
     """
     Write cif files
     """
-    def __init__(self, struct, connect_table=None, sym=True, tol=0.4):
+    def __init__(self, struct, sym=True, tol=0.4):
         self.struct = struct
         self.symmetry = Symmetry(struct, sym=sym, 
                                  symprec=tol)
-        #self.symmetry = Symmetry(struct, sym=False, symprec=tol)
-        if connect_table is not None:
-            self.connect_table = connect_table
-        
-    def add_labels(self):
+    def add_labels(self, equiv_atoms):
         """
         Include numbered labels for each atom.
         """
-        equiv_atoms = self.symmetry.get_equiv_atoms()
+        allatoms = self.symmetry.get_equiv_atoms()
         atomdic = {}
         labeldic = {}
         for atom in set(equiv_atoms):
@@ -185,7 +189,16 @@ class CIF(object):
             atomdic[label] += 1
             labeldic[atom] = label + str(atomdic[label])
 
-        return [labeldic[i] for i in equiv_atoms]
+        label = []
+        for atoms in allatoms:
+            list = [atoms] + self.equiv_dic[atoms]
+            for i in list:
+                try:
+                    label.append(labeldic[i])
+                except:
+                    pass
+
+        return label 
 
     def add_general_labels(self):
         """ add labels for atoms without symmetry considerations """
@@ -201,7 +214,7 @@ class CIF(object):
 
     def write_cif(self, name=None):
 
-        method = "Genstruct - created by Aliens."
+        method = "Genstruct - created by [your name here]"
 
         if name is None:
             filename = "default.cif"
@@ -213,7 +226,8 @@ class CIF(object):
         cell = self.symmetry._lattice.copy()
         cellparams = self.get_cell_params(cell)
 
-        lines = "data_" + name.split('/')[1] + "\n"
+        #lines = "data_" + str(name).split('/')[1] + "\n"
+        lines = "data_" + str(name) + "\n"
         today = date.today()
         prefix = "_audit"
         # creation date (under _audit)
@@ -276,17 +290,19 @@ class CIF(object):
         lines += "_atom_site_fract_x\n"
         lines += "_atom_site_fract_y\n"
         lines += "_atom_site_fract_z\n"
-      
+
+        equivalent_atoms = self.symmetry.get_equiv_atoms()
+        self.equiv_dic = self.get_equiv_dic()
         #unique_atoms = range(len(self.symmetry.symbols))
-        unique_atoms = list(set(self.symmetry.get_equiv_atoms()))
+        # TODO(pboyd): match unique_atoms to indices of bonding
+        unique_atoms = self.get_uniques(equivalent_atoms)
+        #unique_atoms = list(set(equivalent_atoms))
         unique_coords = [list(self.symmetry._scaled_coords[i]) for i in unique_atoms]
         unique_symbols = [self.symmetry._element_symbols[i] for i in unique_atoms]
-        #general_labels = self.add_general_labels()
-        unique_labels = self.add_labels()
-
-        atoms_fftype = [atom for sbu in self.struct.atoms_fftype 
-                for atom in sbu]
-        len_orig = len([i for sbu in self.struct.atoms for i in sbu])
+        unique_labels = self.add_labels(unique_atoms)
+        atoms_fftype = [atom.force_field_type for bu in 
+                self.struct.building_units for atom in bu.atoms]
+        len_orig = self.struct.natoms 
         total_fftype = [atoms_fftype[i%len_orig] for i in range(
             len(self.symmetry._scaled_coords))]
         unique_fftype = [total_fftype[i] for i in unique_atoms]
@@ -295,40 +311,89 @@ class CIF(object):
                     unique_fftype[idx]] + unique_coords[idx]
             lines += "%-7s%-6s%-5s%10.5f%10.5f%10.5f\n"%(tuple(line))
         lines += "\n"
-        if self.connect_table is not None:
-            connect_table = self.update_connect_table()
-            lines += "loop_\n"
-            lines += "_geom_bond_atom_site_label_1\n"
-            lines += "_geom_bond_atom_site_label_2\n"
-            lines += "_geom_bond_distance\n"
-            lines += "_ccdc_geom_bond_type\n"
-            keys = connect_table.keys()
-            keys.sort()
-            for bond in keys:
-                lines += "%-7s%-7s%10.5f%5s\n"%(unique_labels[bond[0]],
-                    unique_labels[bond[1]], 
-                    connect_table[bond][0], 
-                    connect_table[bond][1])
+        
+        connect_table = self.update_connect_table(unique_atoms)
+        lines += "loop_\n"
+        lines += "_geom_bond_atom_site_label_1\n"
+        lines += "_geom_bond_atom_site_label_2\n"
+        lines += "_geom_bond_distance\n"
+        lines += "_ccdc_geom_bond_type\n"
+        for bond in connect_table:
+            lines += "%-7s%-7s%10.5f%5s\n"%(unique_labels[bond[0]-1],
+                unique_labels[bond[1]-1], 
+                bond[3], bond[2]) 
 
         ciffile = open(filename, 'w')
         ciffile.writelines(lines)
         ciffile.close()
         return
 
-    def update_connect_table(self):
+    def get_uniques(self, equivalent_atoms):
+        """ 
+        Determine which unique atoms are bonded using the bonding
+        table.
+        """
 
-        max = 0
-        equiv_atoms = {}
-        for idx, atom in enumerate(self.symmetry.get_equiv_atoms()):
-            equiv_atoms[idx] = atom
-        tempdic = {}
-        for i, j in self.connect_table.keys():
-            # determine how many more pairs exist that are
-            # equivalent
-            bonding = self.connect_table[(i,j)]
-            tempdic[(equiv_atoms[i], equiv_atoms[j])] = bonding
+        table = self.struct.bonds
+        atoms = [atom for bu in self.struct.building_units
+                for atom in bu.atoms]
+        # seed with the first entry in the equivalent_atoms
+        uniques = [equivalent_atoms[0]]
+        bonds = [(i.index-1) for i in atoms[uniques[0]].bonds]
+        for unique in list(set(equivalent_atoms)):
+            indices = [unique] + self.equiv_dic[unique]
+            utest = [1 for i in indices for j in uniques if i==j]
+            btest = [i for i in indices for j in bonds if i==j]
+            if utest:
+                if len(utest) > 1:
+                    print utest
+            elif btest:
+                uniques.append(btest[0])
+                bonds += [(i.index-1) for i in atoms[btest[0]].bonds]
+            else:
+                uniques.append(unique)
+                bonds += [(i.index-1) for i in atoms[unique].bonds]
+        return uniques
 
-        return tempdic
+    def get_equiv_dic(self):
+        equivalent_atoms = self.symmetry.get_equiv_atoms()
+        equiv_dic = {}
+        [equiv_dic.setdefault(i,[]).append(p) for p, i in 
+                enumerate(equivalent_atoms)]
+        [equiv_dic.setdefault(p,[]).append(i) for p, i in
+                enumerate(equivalent_atoms)] 
+
+        for key, value in equiv_dic.iteritems():
+            equiv_dic[key] = list(set(value))
+            for idx, val in enumerate(equiv_dic[key]):
+                if key == val:
+                    equiv_dic[key].pop(idx)
+
+        return equiv_dic
+
+    def update_connect_table(self, uniques):
+        conn_table = []
+        taken = []
+        for bond in self.struct.bonds:
+            if bond[0] in uniques and bond[1] in uniques and \
+                    (bond[0],bond[1]) not in taken:
+                conn_table.append(bond)
+                taken.append((bond[0],bond[1]))
+                taken.append((bond[1],bond[0]))
+
+        return conn_table
+
+    def index_check(self, index, uniques):
+        """ 
+        check if the index is already in uniques, or it's equivalent 
+        is in uniques.
+        """
+        if index in uniques:
+            return False
+        for i in self.equiv_dic[index]:
+            if i in uniques:
+                return False
+        return True
 
     def get_cell_params(self, cell):
         """ return alen, blen, clen, alpha, beta, gamma """
@@ -351,15 +416,15 @@ class Symmetry(object):
         self.sym = sym
         self.struct = structure
         self._symprec = symprec
-        self._lattice = np.array([np.array(i) for i in structure.cell])
-        self._scaled_coords = np.array([np.array(i) for sbu in 
-                                        structure.fcoords for i in sbu])
+        self._lattice = structure.cell.lattice.copy()
+        self._scaled_coords = np.array([atom.scaled_coords for bu in 
+            structure.building_units for atom in bu.atoms])
         #_angle_tol represents the tolerance of angle between lattice
         # vectors in degrees.  Negative value invokes converter from
         # symprec
         self._angle_tol = -1.0
-        self._element_symbols = [i for sbu in structure.atoms 
-                                 for i in sbu]
+        self._element_symbols = [atom.element for bu in 
+                structure.building_units for atom in bu.atoms]
         self._numbers = np.array([ATOMIC_NUMBER.index(i) for i in 
                                   self._element_symbols])
         self.dataset = {}
@@ -378,25 +443,6 @@ class Symmetry(object):
             _angle_tol = self._angle_tol
             _numbers = self._numbers.copy()
             
-            
-            # find primitive  --- not necessary
-            #prim_lattice = ref_lattice.copy()
-            #prim_pos = ref_pos.copy()
-            #prim_numbers = ref_numbers.copy()
-            #num_atom_prim = spg.primitive(prim_lattice,
-            #                              prim_pos, 
-            #                              prim_numbers,
-            #                              _symprec,
-            #                              _angle_tol)
-            #else:
-            #if num_atom_prim != 0:
-            #    self._lattice = prim_lattice.T.copy()
-            #    self._scaled_coords = prim_pos[:num_atom_prim].copy()
-            #    self._numbers = prim_numbers[:num_atom_prim].copy()
-            #    self._element_symbols = [ATOMIC_NUMBER[i] for 
-            #            i in prim_numbers[:num_atom_prim]]
-            #else:
-            # get symmetry dataset
             keys = ('number',
                     'international',
                     'hall',
@@ -438,9 +484,7 @@ class Symmetry(object):
             # thus a check is done after refining the structure.
 
             if dataset['number'] == 0:
-                warning("WARNING - Bad Symmetry found! organic %i and %i"
-                        %(tuple([i.index for i in self.struct.sbu_array if
-                            not i.metal])))
+                warning("WARNING - Bad Symmetry found!")
                 self.sym = False
             else:
 
@@ -538,6 +582,18 @@ class Time:
         currtime = time()
         self.timer = currtime - self.currtime 
         self.currtime = currtime
+
+def writexyz(atoms, coordinates, name="default"):
+    """ Writes a general xyz coordinate file for viewing """
+
+    name = name + ".xyz"
+    file = open(name, "w")
+    file.writelines("%5i\n%s\n"%(len(atoms), name))
+    for atom, coord in zip(atoms, coordinates):
+        file.writelines(xyzatomfmt%tuple([atom] + list(coord))) 
+
+    file.close()
+    return
 
 cell_setting = {
     0   :   "triclinic",
