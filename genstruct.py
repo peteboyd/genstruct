@@ -558,7 +558,7 @@ class Structure(object):
         Check the bu supplied for overlap with all other atoms
         """
         # scale the van der waals radii by sf
-        sf = 0.4
+        sf = 0.004
         for atom in bu.atoms:
             elem, coords = self.min_img_shift(atom=atom.coordinates)
             # debug to see if the shift is happening
@@ -1128,7 +1128,6 @@ class Generate(object):
                 bond.bu_order = 0
         seed.debug_xyz()
         return [seed]
-
 
 def valid_bond(bu, cp, bu2, cp2):
     if not cp.bonded and not cp2.bonded:
