@@ -206,10 +206,11 @@ class BuildingUnit(object):
 
             else:
                 # add bonding to atoms
+                # add the index of the atom it is bonded with
                 self.atoms[int(bond[0])].bonds.append(
-                        self.atoms[int(bond[1])])
+                        int(bond[1]))
                 self.atoms[int(bond[1])].bonds.append(
-                        self.atoms[int(bond[0])])
+                        int(bond[0]))
                 self.bonds.append(Bond(
                      self.atoms[int(bond[0])], 
                      self.atoms[int(bond[1])], bond[2]))
@@ -634,8 +635,7 @@ class Structure(object):
 
     def saturated(self):
         """ return True if all bonds in the structure are bonded """
-        print len([1 for bu in self.building_units for 
-                    cp in bu.connect_points if not cp.bonded])
+
         if len([1 for bu in self.building_units for 
                 cp in bu.connect_points if not cp.bonded]) == 0:
             return True
