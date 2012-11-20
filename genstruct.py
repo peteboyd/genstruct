@@ -479,10 +479,14 @@ class Structure(object):
         # re-order atom indices within bu.atoms
         # to coincide with connectivity
         for atom in add_bu.atoms:
-            self.natoms += 1
-            atom.index = self.natoms
-        # introduce bond between joined connectivity
-        # points
+            # adjust the atom index
+            atom.index += self.natoms
+            # adjust the bonding indices for each atom
+            for bidx in atom.bonds:
+                bidx += self.natoms
+        # update the number of atoms in the structure
+        self.natoms += len(add_bu.atoms)
+        # introduce bond between joined connectivity points
         self.update_connectivities(bu, bond, add_bu, add_bond)
         # check for bonding between other existing building units
         self.bonding()
@@ -570,7 +574,7 @@ class Structure(object):
             # distance checks
             distmat = distance.cdist([atom.coordinates[:3]], coords)
             # check for atom == atom, bonded
-            excl = [atom.index-1] + [i.index-1 for i in atom.bonds]
+            excl = [atom.index] + [idx for idx in atom.bonds]
             for idx, dist in enumerate(distmat[0]):
                 if idx not in excl:
                     if dist < (Radii[atom.element]+ Radii[elem[idx]])*sf:
@@ -674,8 +678,8 @@ class Structure(object):
                 dist = length(atm.coordinates, shiftcoord)
                 if dist < (Radii[atm.element] + Radii[atm2.element])*sf:
                     # append self.bonds with both atoms.
-                    atm.bonds.append(atm2)
-                    atm2.bonds.append(atm)
+                    atm.bonds.append(atm2.index)
+                    atm2.bonds.append(atm.index)
                     # append to bonds
                     # bond type "single" for now...
                     self.bonds.append((atm.index, atm2.index, "S", dist))
@@ -733,10 +737,7 @@ class Structure(object):
                 if len(cat) == 0 or len(cat) > 1:
                     error("problem copying atoms")
                 cat = cat[0]
-                bonding = [copyatom for bndatm in atm.bonds for 
-                           copyatom in cats if 
-                           bndatm.index == copyatom.index]
-                cat.bonds = bonding
+                cat.bonds = atm.bonds[:]
                 copybu.atoms.append(cat)
 
             for cp in bu.connect_points:
@@ -1028,7 +1029,7 @@ class Generate(object):
                                 info("Structure Generated! Timing reports "+
                                      "%f seconds"%stopwatch.timer)
                                 newstruct.get_scaled()
-                                cif_file = CIF(newstruct)
+                                cif_file = CIF(newstruct, sym=False)
                                 cif_file.write_cif()
                                 return
                             add_list.append(newstruct)  # append structure to list
@@ -1112,8 +1113,8 @@ class Generate(object):
                 %(bu.name))
         seed.building_units.append(bu)
         for atom in bu.atoms:
-            seed.natoms += 1
             atom.index = seed.natoms
+            seed.natoms += 1
         for bond in bu.bonds:
             # append the building units' bonds to the master
             # bonding table.  This will be used to write the 
