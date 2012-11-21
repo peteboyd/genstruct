@@ -349,10 +349,10 @@ class CIF(object):
                     print utest
             elif btest:
                 uniques.append(btest[0])
-                bonds += [(i.index-1) for i in atoms[btest[0]].bonds]
+                bonds += [i for i in atoms[btest[0]].bonds]
             else:
                 uniques.append(unique)
-                bonds += [(i.index-1) for i in atoms[unique].bonds]
+                bonds += [i for i in atoms[unique].bonds]
         return uniques
 
     def get_equiv_dic(self):

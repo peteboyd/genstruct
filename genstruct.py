@@ -514,8 +514,7 @@ class Structure(object):
                              cp1.coordinates[:3])
                     # get a shifted vector to see if the bond will
                     # be local
-                    svect = self.cell.periodic_shift(dvect.copy())
-
+                    svect = self.cell.periodic_shift(dvect.copy())       
                     # test for local bond
                     if np.allclose(length(svect), 0., atol=0.2):
                         debug("local bond found between "
@@ -527,6 +526,7 @@ class Structure(object):
                         self.update_connectivities(bu1, cp1, bu2, cp2)
                         cp1.bond_from_search = True
                         cp2.bond_from_search = True
+                    # check for valid periodic vector
                     elif self.cell.valid_vector(dvect):
                         debug("periodic vector found: " 
                         +"(%9.5f, %9.5f, %9.5f)"%(
@@ -541,7 +541,7 @@ class Structure(object):
                         self.update_connectivities(bu1, cp1, 
                                                  bu2, cp2)
                         cp1.bond_from_search = True
-                        cp2.bond_from_search = True
+                        cp2.bond_from_search = True           
                     else:
                         debug("No bonding found with "
                         +"original (%9.5f, %9.5f, %9.5f),"
@@ -698,6 +698,12 @@ class Structure(object):
                 atm.scaled_coords = self.cell.get_scaled(atm.coordinates)
         return
 
+    def finalize(self):
+        """Write final files."""
+        # determine the bonding sequence.
+        cif_file = CIF(self, sym=False)
+        cif_file.write_cif()
+        
     def __copy__(self):
         """
         Overrides the method of deepcopy, which fails with these
@@ -915,16 +921,7 @@ class Database(list):
 class Generate(object):
     """
     Algorithm for generating MOFs
-    things to keep in mind: the format for the structures are
-    totally different now so make sure that all peripheral functions
-    can work with the new data (eg. coordinates are now drawn from 
-    Atom.coordinates). Things to transfer:
-    1)symmetry library
-    2)csv
-    3)debugging
-    4)cif file writing without symmetry
-    5)connection tables
-    6)functional groups
+
     """
 
     def __init__(self, building_unit_database, num=3):
@@ -1022,6 +1019,8 @@ class Generate(object):
                         cbond = cbu.connect_points[bond[0].order]
                         add_bu = deepcopy(base_building_units[bond[1].bu_order])
                         add_bond = add_bu.connect_points[bond[1].order]
+                        #TODO(pboyd): this copying method really slows down the
+                        #code, should find a better alternative.
                         
                         debug("Added building unit #%i %s,"
                             %(len(structure.building_units),
@@ -1039,8 +1038,12 @@ class Generate(object):
                                 info("Structure Generated! Timing reports "+
                                      "%f seconds"%stopwatch.timer)
                                 new_struct.get_scaled()
-                                cif_file = CIF(new_struct, sym=False)
-                                cif_file.write_cif()
+                                new_struct.finalize()
+                                # NOTE the next two lines should be in a separate
+                                # function which is or is not called based on
+                                # a DEBUG flag.
+                                for addstr in add_list:
+                                    write_debug_xyz(addstr)
                                 return
                             add_list.append(new_struct)  # append structure to list
                             new_struct.sym_id = new_id[:]
@@ -1076,6 +1079,15 @@ class Generate(object):
         # determine the symmetry label
         symmetry_label = [(bu.internal_index, cp.symmetry), 
                           (add_bu.internal_index, add_cp.symmetry)]
+        # check for if the bond is 'special'
+        if cp.special is not None:
+            symmetry_label = [(bu.internal_index, "special%i"%(cp.special)),
+                              (add_bu.internal_index,
+                              "constraint%i"%(add_cp.constraint))]
+        elif cp.constraint is not None:
+            symmetry_label = [(bu.internal_index, "constraint%i"%(cp.constraint)),
+                              (add_bu.internal_index,
+                              "special%i"%(add_cp.special))]
         symmetry_label.sort()
         symmetry_label = tuple(symmetry_label)
         return symmetry_label 
