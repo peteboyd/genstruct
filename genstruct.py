@@ -435,11 +435,12 @@ class Structure(object):
     def __init__(self):
         self.building_units = []
         self.cell = Cell()
-        self.debug_lines = ""
+        self.xyz_lines = ""  # for debugging to a .xyz file
         self.natoms = 0
         # Store global bonds here
         self.bonds = []
         self.sym_id = []
+
 
     def debug_xyz(self):
         cellformat = "H%12.5f%12.5f%12.5f " + \
@@ -461,8 +462,8 @@ class Structure(object):
 
         n = len(lines)
 
-        self.debug_lines += "%5i\ndebug\n"%n
-        self.debug_lines += "".join(lines)
+        self.xyz_lines += "%5i\ndebug\n"%n
+        self.xyz_lines += "".join(lines)
 
     def insert(self, bu, bond, add_bu, add_bond):
 
@@ -960,13 +961,13 @@ class Generate(object):
         stopwatch = Time()
         stopwatch.timestamp()
         # create a local instance of bu_db
-        blocks = deepcopy(bu_db)
+        base_building_units = deepcopy(bu_db)
         for bu in bu_db:
             if bu.specialbu:
                 blocks += [i for i in bu.specialbu]
 
         # assign some indices etc..
-        for id, bu in enumerate(blocks):
+        for id, bu in enumerate(base_building_units):
             # assign a temporary value for bu
             bu.internal_index = id
             for cp in bu.connect_points:
@@ -976,7 +977,7 @@ class Generate(object):
         # partnered.
         
         # random seed 
-        structures = self.random_insert(blocks)
+        structures = self.random_insert(base_building_units)
         done = False
         # while loop
         while not done:
@@ -984,72 +985,85 @@ class Generate(object):
             # keep track of symmetry labelling so redundant structures are
             # not made.
             symtrack = []
-            for id, struct in enumerate(structures):
+            for structure in structures:
                 # scan over all building units
-                bus = struct.building_units
+                building_units = structure.building_units
                 # scan over all bonds with building units
-                bonds = [bond for bu in bus for bond in bu.connect_points]
+                curr_bonds = [bond for bu in building_units
+                         for bond in bu.connect_points]
                 # scan over all library
-                newbonds = [bond for bu in blocks for bond in bu.connect_points]
+                new_bonds = [bond for bu in base_building_units
+                            for bond in bu.connect_points]
                 # keep a list of all possible combinations
-                bondlist = self.gen_bondlist(bonds, newbonds)
-                # print it as a debug.
-                debug("Trying %i possible bonds"%(len(bondlist)))
-                for bond in bondlist:
-                    # bondstate is determined to see if the bond has
+                bond_pairs = self.gen_bondlist(curr_bonds, new_bonds)
+                for bond in bond_pairs:
+                    # symmetry of bonds is determined to see if the bond has
                     # already been tried.
-                    newstruct = copy(struct)
-                    # select the correct instances of the bond and building
-                    # units to add.  This is probably slowing down the code
-                    # a bit.
-                    cbu = newstruct.building_units[bond[0].bu_order]
-                    cbond = cbu.connect_points[bond[0].order]
-                    add_bu = deepcopy(blocks[bond[1].bu_order])
-                    add_bond = add_bu.connect_points[bond[1].order]
+                    # grab the current building unit from the existing bond
+                    # should be the first entry.
+                    cbu = structure.building_units[bond[0].bu_order]
+                    cbond = bond[0]
+                    # the building unit to add is found in bond[1]
+                    add_bu = base_building_units[bond[1].bu_order]
+                    add_bond = bond[1]
                     # determine the symmetry of the bond trying to be formed
                     add_sym = self.get_symmetry_info(cbu, cbond, 
                                                      add_bu, add_bond)
-                    new_id = newstruct.sym_id[:]
+                    # append the symmetry info to the growing structure.
+                    new_id = structure.sym_id[:]
                     new_id.append(add_sym)
-                        
                     if tuple(new_id) not in symtrack:
+                        # make a copy of the structure so it can be manipulated
+                        # with out altering the existing structure.
+                        new_struct = copy(structure)
+                        # re-reference the building units and connect_points
+                        # using the self-referencing variables in bond[0]
+                        cbu = new_struct.building_units[bond[0].bu_order]
+                        cbond = cbu.connect_points[bond[0].order]
+                        add_bu = deepcopy(base_building_units[bond[1].bu_order])
+                        add_bond = add_bu.connect_points[bond[1].order]
+                        
                         debug("Added building unit #%i %s,"
-                            %(len(struct.building_units),
+                            %(len(structure.building_units),
                                 add_bu.name)+
                             " bond %i, to building unit"
                             %(add_bond.index) +
                             " #%i  %s, bond %i"
                             %(cbu.order, cbu.name, cbond.index))
-                        newstruct.insert(cbu, cbond, 
+                        new_struct.insert(cbu, cbond, 
                                    add_bu, add_bond)
-                        if not newstruct.overlap_bu(add_bu):
-                            if newstruct.saturated() and \
-                                    newstruct.cell.index == 3:
+                        if not new_struct.overlap_bu(add_bu):
+                            if new_struct.saturated() and \
+                                    new_struct.cell.index == 3:
                                 stopwatch.timestamp()
                                 info("Structure Generated! Timing reports "+
                                      "%f seconds"%stopwatch.timer)
-                                newstruct.get_scaled()
-                                cif_file = CIF(newstruct, sym=False)
+                                new_struct.get_scaled()
+                                cif_file = CIF(new_struct, sym=False)
                                 cif_file.write_cif()
                                 return
-                            add_list.append(newstruct)  # append structure to list
-                            newstruct.sym_id = new_id[:]
+                            add_list.append(new_struct)  # append structure to list
+                            new_struct.sym_id = new_id[:]
                             # store symmetry data
-                            symtrack.append(tuple(newstruct.sym_id[:])) 
+                            symtrack.append(tuple(new_struct.sym_id[:])) 
                         else:
                             debug("overlap found")
                         if (len(add_list) + len(structures)) > 20000:
                             stopwatch.timestamp()
                             info("Genstruct went too long, "+
                             "%f seconds, returning..."%stopwatch.timer)
+                            for addstr in add_list:
+                                write_debug_xyz(addstr)
                             return
             if not add_list:
                 stopwatch.timestamp()
                 info("After %f seconds, "%stopwatch.timer +
                 "no possible new combinations, returning...")
+                for oldstr in structures:
+                    write_debug_xyz(oldstr)
                 return
-            for s in add_list:
-                write_debug_xyz(s)
+            for addstr in add_list:
+                write_debug_xyz(addstr)
             structures = add_list
         return
 
@@ -1149,7 +1163,7 @@ def write_debug_xyz(structure, count=[]):
     else:
         file=open("debug.xyz", "a")
     count.append(1)
-    file.writelines(structure.debug_lines)
+    file.writelines(structure.xyz_lines)
     file.close()
 
 def main():
