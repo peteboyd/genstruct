@@ -339,7 +339,7 @@ class CIF(object):
                 for atom in bu.atoms]
         # seed with the first entry in the equivalent_atoms
         uniques = [equivalent_atoms[0]]
-        bonds = [(i.index-1) for i in atoms[uniques[0]].bonds]
+        bonds = atoms[uniques[0]].bonds[:]
         for unique in list(set(equivalent_atoms)):
             indices = [unique] + self.equiv_dic[unique]
             utest = [1 for i in indices for j in uniques if i==j]
