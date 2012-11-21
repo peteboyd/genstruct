@@ -293,13 +293,22 @@ class BuildingUnit(object):
         axis = connect_point.para[:3] 
         R = rotation_matrix(axis, angle, point=
                             self_point.coordinates)
-        tol = min(angle, 0.02)
+        # NOTE: the default min tolerance was set to 0.06 because when
+        # building CuBTC lower values would result in the opposite
+        # rotation.  ie. the tolerance  for angle rotation is 0.06
+        # although with the following corrective measures, it typically
+        # goes down to 6e-4
+        tol = min(angle, 0.06)
         if not np.allclose(calc_angle(np.dot(R[:3,:3], 
                            self_point.perp[:3]), 
                            connect_point.perp),0., atol=tol):
+            debug("here")
+            debug("%f"%angle)
+            debug("%f"%calc_angle(np.dot(R[:3,:3],self_point.perp[:3]),connect_point.perp))
             angle = -angle 
             R = rotation_matrix(axis, angle, 
                                 point=self_point.coordinates)
+            debug("%f"%calc_angle(np.dot(R[:3,:3],self_point.perp[:3]),connect_point.perp))
 
         for atom in self.atoms:
             atom.coordinates = np.dot(R, atom.coordinates)
