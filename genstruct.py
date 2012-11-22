@@ -703,13 +703,24 @@ class Structure(object):
         for bu in self.building_units:
             for atm in bu.atoms:
                 atm.scaled_coords = self.cell.get_scaled(atm.coordinates)
+                atm.scaled_coords = atm.scaled_coords - np.floor(atm.scaled_coords)
         return
 
-    def finalize(self):
+    def finalize(self, base_building_units, outdir=""):
         """Write final files."""
         # determine the bonding sequence.
+        self.cell.reorient()
+        met_lines = ""
+        org_lines = ""
+        for bu in base_building_units:
+            if bu.metal:
+                met_lines += "_m%i"%(bu.index)
+                topology = bu.topology
+            else:
+                org_lines += "_o%i"%(bu.index)
+        filename = outdir + "str" + met_lines + org_lines + "_%s"%(topoloy)
         cif_file = CIF(self, sym=False)
-        cif_file.write_cif()
+        cif_file.write_cif(filename)
         
     def __copy__(self):
         """
@@ -812,6 +823,7 @@ class Cell(object):
         self.params = np.zeros(6) # a, b, c, alpha, beta, gamma
         self.ilattice = np.identity(3) # inverse of lattice
         self.nlattice = np.identity(3) # normalized vectors
+        self.olattice = np.identity(3) # normalized orthogonal vectors
         self.index = 0  # keep track of how many vectors have been added
         self.origin = np.zeros((3,3)) # origin for cell vectors
 
@@ -853,8 +865,19 @@ class Cell(object):
         """Adds a vector to the cell"""
         self.lattice[self.index,:] = vector.copy()
         self.nlattice[self.index,:] = unit_vector(vector)
+        # get orthogonal projection of vector
+        self.store_orthogonal(vector)
         self.index += 1
         self.get_inverse()
+        
+    def store_orthogonal(self, v):
+        """Store the orthogonal projection of the vector in an array."""
+        vector = v.copy()
+        # project
+        for orthog_vect in self.olattice[:self.index]:
+            vector = vector - project(vector, orthog_vect)
+        vector = unit_vector(vector)
+        self.olattice[self.index,:] = vector
 
     def periodic_shift(self, vector):
         """
@@ -881,7 +904,44 @@ class Cell(object):
             return np.dot(vector[:3], self.ilattice)
 
         return np.zeros(3)
+    
+    def reorient(self):
+        """Re-orients the cell along the convention:
+        a --> x axis
+        b --> xy plane
+        c --> the rest
+        
+        """
+        xaxis = np.array([1.,0.,0.])
+        yaxis = np.array([0.,1.,0.])
+        # first: rotation to the x-axis
+        x_rotangle = calc_angle(self.lattice[0], xaxis)
+        x_rotaxis = np.cross(self.lattice[0], xaxis)
+        x_rotaxis = (x_rotaxis)/length(x_rotaxis)
+        RX = rotation_matrix(x_rotaxis, x_rotangle)
+        self.lattice = np.dot(RX[:3,:3], self.lattice)
+        
+        # second: rotation to the xy - plane
+        projx_b = self.lattice[1] - project(self.lattice[1], xaxis)
+        xy_rotangle = calc_angle(projx_b, yaxis)
+        xy_rotaxis = xaxis
+        RXY = rotation_matrix(xy_rotaxis, xy_rotangle)
+        # test to see if the rotation is in the right direction
+        testvect = np.dot(RXY[:3,:3], projx_b)
+        testangle = calc_angle(yaxis, testvect)
+        if not np.allclose(testangle, 0., atol = 1e-3):
+            RXY = rotation_matrix(-xy_rotaxis, xy_rotangle)
+        self.lattice = np.dot(RXY[:3,:3], self.lattice)
+        # third change: -z to +z direction
+        if self.lattice[2][2] < 0.:
+            # invert the cell
+            self.lattice[2][2] = -1. * self.lattice[2][2]
+            # do a 1-scaled_coords.
+        # re-invert cell (is it necessary to invert before this?)
+        self.get_inverse()
+        return
 
+        
     def __copy__(self):
         dup = object.__new__(Cell)
         dup.__dict__ = self.__dict__.copy()
@@ -935,6 +995,9 @@ class Generate(object):
         self.bu_database = building_unit_database
         # select 1 metal and 2 organic linkers to mix
         # for the sampling.
+        self.outdir = "output." + building_unit_database.extension + "/"
+        if not os.path.exists(self.outdir):
+            os.makedirs(self.outdir)
 
         combinations = self.set_combinations(num)
         # filter out multiple metal combo's
@@ -1044,15 +1107,17 @@ class Generate(object):
                                 stopwatch.timestamp()
                                 info("Structure Generated! Timing reports "+
                                      "%f seconds"%stopwatch.timer)
+                                
                                 new_struct.get_scaled()
-                                new_struct.finalize()
+                                new_struct.finalize(base_building_units,
+                                                    outdir = self.outdir)
                                 # NOTE the next two lines should be in a separate
                                 # function which is or is not called based on
                                 # a DEBUG flag.
                                 for addstr in add_list:
                                     write_debug_xyz(addstr)
                                 return
-                            add_list.append(new_struct)  # append structure to list
+                            add_list.append(new_struct)
                             new_struct.sym_id = new_id[:]
                             # store symmetry data
                             symtrack.append(tuple(new_struct.sym_id[:])) 
