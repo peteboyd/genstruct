@@ -447,6 +447,7 @@ class Structure(object):
         # Store global bonds here
         self.bonds = []
         self.sym_id = []
+        self.directives = [] # keep track of bonding directives
 
 
     def debug_xyz(self):
@@ -499,6 +500,8 @@ class Structure(object):
         # check for bonding between other existing building units
         self.bonding()
         self.debug_xyz()  # store coordinates
+        self.directives.append((bu.internal_index, bond.index,
+                                add_bu.index, add_bond.index))
         return
 
     def bonding(self):
@@ -718,7 +721,7 @@ class Structure(object):
                 topology = bu.topology
             else:
                 org_lines += "_o%i"%(bu.index)
-        filename = outdir + "str" + met_lines + org_lines + "_%s"%(topoloy)
+        filename = outdir + "str" + met_lines + org_lines + "_%s"%(topology)
         cif_file = CIF(self, sym=False)
         cif_file.write_cif(filename)
         
@@ -1210,6 +1213,8 @@ class Generate(object):
         debug("Inserted %s as the initial seed for the structure"
                 %(bu.name))
         seed.building_units.append(bu)
+        # first entry in build directive is the index of the building unit.
+        seed.directives.append((bu.index, bu.metal))
         for atom in bu.atoms:
             atom.index = seed.natoms
             seed.natoms += 1
@@ -1226,6 +1231,8 @@ class Generate(object):
             for bond in bu.connect_points:
                 bond.bu_order = 0
         seed.debug_xyz()
+        # check for initial bonding with itself (intermetal...)
+        seed.bonding()      
         return [seed]
 
 def valid_bond(bu, cp, bu2, cp2):
