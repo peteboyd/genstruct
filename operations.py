@@ -39,6 +39,12 @@ def rotation_matrix2(angle, direction, point=None):
 
 def unit_vector(vector):
     return vector / length(vector)
+    
+def project(vector, base_vector):
+    """Returns first vector entry projected onto the second."""
+    vector = vector[:3].copy()
+    base_vector = base_vector[:3].copy()
+    return np.dot(base_vector, vector)/np.dot(base_vector, base_vector) * base_vector
 
 def rotation_matrix(axis, angle, point=None):
     """

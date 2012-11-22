@@ -214,17 +214,13 @@ class CIF(object):
         """
 
         method = "Genstruct - created by [your name here]"
-
         if name is None:
             filename = "default.cif"
         else:
             filename = name + ".cif"
-
         # determine cell parameters
-
         cell = self.symmetry._lattice.copy()
         cellparams = self.get_cell_params(cell)
-
         #lines = "data_" + str(name).split('/')[1] + "\n"
         lines = "data_" + str(name) + "\n"
         today = date.today()
@@ -337,14 +333,14 @@ class CIF(object):
         # structure.  One of these bonds will be to another asymmetric atom
         # or else this structure is not connected. As uniques grows with
         # bonded asymmetric atoms, the list of possible bonds grows.
-        bondlist = [atoms[equivalent_atoms[0]].bonds[:]]
+        bondlist = atoms[equivalent_atoms[0]].bonds[:]
         for unique in list(set(equivalent_atoms)):
             # make a list of all the equivalent atoms with unique
             indices = [unique] + self.equiv_dic[unique]
             # check to see if the unique atom is already represented
             utest = [1 for i in indices for j in uniques if i==j]
             # check to see if a bond exists between them.
-            # FIXME(pboyd): what if there is more than one?
+            # FIXME(pboyd): what if there is more than one? PROBLEMS!
             btest = [i for i in indices for j in bondlist if i==j]
             # TODO(pboyd): maybe exclude bonds which are through periodic
             # boundaries...
@@ -375,7 +371,6 @@ class CIF(object):
             for idx, val in enumerate(equiv_dic[key]):
                 if key == val:
                     equiv_dic[key].pop(idx)
-
         return equiv_dic
 
     def update_connect_table(self, uniques):
