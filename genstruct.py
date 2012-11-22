@@ -295,16 +295,14 @@ class BuildingUnit(object):
                             self_point.coordinates)
         # NOTE: the default min tolerance was set to 0.06 because when
         # building CuBTC lower values would result in the opposite
-        # rotation.  ie. the tolerance  for angle rotation is 0.06
+        # rotation.  ie. the initial rotation carried out with R resulted
+        # in the two perp vectors to be aligned with a error of 0.06 radians
         # although with the following corrective measures, it typically
-        # goes down to 6e-4
+        # goes down to 6e-4 rad
         tol = min(angle, 0.06)
         if not np.allclose(calc_angle(np.dot(R[:3,:3], 
                            self_point.perp[:3]), 
                            connect_point.perp),0., atol=tol):
-            debug("here")
-            debug("%f"%angle)
-            debug("%f"%calc_angle(np.dot(R[:3,:3],self_point.perp[:3]),connect_point.perp))
             angle = -angle 
             R = rotation_matrix(axis, angle, 
                                 point=self_point.coordinates)
@@ -525,7 +523,7 @@ class Structure(object):
                     # be local
                     svect = self.cell.periodic_shift(dvect.copy())       
                     # test for local bond
-                    if np.allclose(length(svect), 0., atol=0.2):
+                    if np.allclose(length(svect), 0., atol=0.4):
                         debug("local bond found between "
                               +"#%i %s, bond %i and "
                               %(ibu1, bu1.name, cp1.index)
@@ -649,9 +647,10 @@ class Structure(object):
 
     def saturated(self):
         """ return True if all bonds in the structure are bonded """
-
-        if len([1 for bu in self.building_units for 
-                cp in bu.connect_points if not cp.bonded]) == 0:
+        unsat_bonds = len([1 for bu in self.building_units for cp in
+                           bu.connect_points if not cp.bonded])
+        info("there are %i unsaturated bonds"%(unsat_bonds))
+        if unsat_bonds == 0:
             return True
         return False
 
