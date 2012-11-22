@@ -47,9 +47,9 @@ class Log:
         else:
             self.file = file
         self.quiet = False 
-        self.verbose = False
-        if not self.quiet:
-            self.verbose = True
+        self.verbose = True
+        self.default = False
+
         self._init_logging()
         # set up writing to file and terminal
 
@@ -60,9 +60,12 @@ class Log:
         elif self.verbose:
             stdout_level = logging.DEBUG
             file_level = logging.DEBUG
+        elif self.default:
+            stdout_level = logging.INFO
+            file_level = logging.DEBUG
         else:
             stdout_level = logging.INFO
-            file_level = logging.INFO
+            file_level = logging.INFO           
 
         logging.basicConfig(level=file_level,
                             format='[%(asctime)s] %(levelname)s %(message)s',
@@ -173,9 +176,13 @@ class CIF(object):
     Write cif files
     """
     def __init__(self, struct, sym=True, tol=0.4):
+        """Store the structure class and apply symmetry to the system
+        the symmetry will be dictated by the above values of sym and tol.
+        
+        """
         self.struct = struct
-        self.symmetry = Symmetry(struct, sym=sym, 
-                                 symprec=tol)
+        self.symmetry = Symmetry(struct, sym=sym, symprec=tol)
+        
     def add_labels(self, equiv_atoms):
         """
         Include numbered labels for each atom.
@@ -200,19 +207,11 @@ class CIF(object):
 
         return label 
 
-    def add_general_labels(self):
-        """ add labels for atoms without symmetry considerations """
-        atoms = self.symmetry._element_symbols[:]
-        atomdic = {}
-        labels = []
-        for atom in atoms:
-            atomdic.setdefault(atom, 0)
-            atomdic[atom] += 1
-            labels.append(atom + str(atomdic[atom]))
-
-        return labels
-
     def write_cif(self, name=None):
+        """Writes the cif file based on the symmetry found and the bonding data
+        stored in the structure.
+        
+        """
 
         method = "Genstruct - created by [your name here]"
 
@@ -238,7 +237,6 @@ class CIF(object):
                 method + "\n\n"
 
         prefix = "_symmetry"
-
         space_group_name = self.symmetry.get_space_group_name()
         # space group name (under _symmetry)
         lines += "%-34s"%(prefix + "_space_group_name_H-M") + \
@@ -291,18 +289,18 @@ class CIF(object):
         lines += "_atom_site_fract_y\n"
         lines += "_atom_site_fract_z\n"
 
+        # now check to see which atoms to keep in the cif file.
         equivalent_atoms = self.symmetry.get_equiv_atoms()
-        self.equiv_dic = self.get_equiv_dic()
-        #unique_atoms = range(len(self.symmetry.symbols))
-        # TODO(pboyd): match unique_atoms to indices of bonding
-        unique_atoms = self.get_uniques(equivalent_atoms)
-        #unique_atoms = list(set(equivalent_atoms))
+        self.equiv_dic = self.get_equiv_dic(equivalent_atoms)
+        unique_atoms = self.get_unique_atoms(equivalent_atoms)
         unique_coords = [list(self.symmetry._scaled_coords[i]) for i in unique_atoms]
         unique_symbols = [self.symmetry._element_symbols[i] for i in unique_atoms]
         unique_labels = self.add_labels(unique_atoms)
         atoms_fftype = [atom.force_field_type for bu in 
                 self.struct.building_units for atom in bu.atoms]
-        len_orig = self.struct.natoms 
+        len_orig = self.struct.natoms
+        # not sure if total_fftype is necessary.  I think that symmetry finding
+        # reports all unique atoms from the original set, not the extended set
         total_fftype = [atoms_fftype[i%len_orig] for i in range(
             len(self.symmetry._scaled_coords))]
         unique_fftype = [total_fftype[i] for i in unique_atoms]
@@ -319,8 +317,8 @@ class CIF(object):
         lines += "_geom_bond_distance\n"
         lines += "_ccdc_geom_bond_type\n"
         for bond in connect_table:
-            lines += "%-7s%-7s%10.5f%5s\n"%(unique_labels[bond[0]-1],
-                unique_labels[bond[1]-1], 
+            lines += "%-7s%-7s%10.5f%5s\n"%(unique_labels[bond[0]],
+                unique_labels[bond[1]], 
                 bond[3], bond[2]) 
 
         ciffile = open(filename, 'w')
@@ -328,41 +326,50 @@ class CIF(object):
         ciffile.close()
         return
 
-    def get_uniques(self, equivalent_atoms):
-        """ 
-        Determine which unique atoms are bonded using the bonding
-        table.
-        """
-
+    def get_unique_atoms(self, equivalent_atoms):
+        """Determine which unique atoms are bonded using the bonding table."""
         table = self.struct.bonds
         atoms = [atom for bu in self.struct.building_units
                 for atom in bu.atoms]
         # seed with the first entry in the equivalent_atoms
         uniques = [equivalent_atoms[0]]
-        bonds = atoms[uniques[0]].bonds[:]
+        # for each entry in uniques, there is a bond list to atoms within the
+        # structure.  One of these bonds will be to another asymmetric atom
+        # or else this structure is not connected. As uniques grows with
+        # bonded asymmetric atoms, the list of possible bonds grows.
+        bondlist = [atoms[equivalent_atoms[0]].bonds[:]]
         for unique in list(set(equivalent_atoms)):
+            # make a list of all the equivalent atoms with unique
             indices = [unique] + self.equiv_dic[unique]
+            # check to see if the unique atom is already represented
             utest = [1 for i in indices for j in uniques if i==j]
-            btest = [i for i in indices for j in bonds if i==j]
-            if utest:
-                if len(utest) > 1:
-                    print utest
-            elif btest:
+            # check to see if a bond exists between them.
+            # FIXME(pboyd): what if there is more than one?
+            btest = [i for i in indices for j in bondlist if i==j]
+            # TODO(pboyd): maybe exclude bonds which are through periodic
+            # boundaries...
+            if btest and not utest:
                 uniques.append(btest[0])
-                bonds += [i for i in atoms[btest[0]].bonds]
+                bondlist += [i for i in atoms[btest[0]].bonds]
             else:
+                # this condition is a failsafe.
                 uniques.append(unique)
-                bonds += [i for i in atoms[unique].bonds]
+                bondlist += [i for i in atoms[unique].bonds]
         return uniques
 
-    def get_equiv_dic(self):
-        equivalent_atoms = self.symmetry.get_equiv_atoms()
+    def get_equiv_dic(self, equivalent_atoms):
+        """Returns a dictionary of atom indices as keys and a list of equivalent
+        atoms as the values.  There is redundancy such that each key should
+        represent one of the atoms in the list.
+        
+        """
         equiv_dic = {}
+        # set up dictionary of equivalent atom lists.
         [equiv_dic.setdefault(i,[]).append(p) for p, i in 
                 enumerate(equivalent_atoms)]
         [equiv_dic.setdefault(p,[]).append(i) for p, i in
                 enumerate(equivalent_atoms)] 
-
+        # eliminate duplicates and self-referenced atoms
         for key, value in equiv_dic.iteritems():
             equiv_dic[key] = list(set(value))
             for idx, val in enumerate(equiv_dic[key]):
@@ -372,6 +379,7 @@ class CIF(object):
         return equiv_dic
 
     def update_connect_table(self, uniques):
+        """Return only the bonds which exist between asymmetric atoms."""
         conn_table = []
         taken = []
         for bond in self.struct.bonds:
@@ -561,10 +569,10 @@ class Symmetry(object):
             return 1
 
     def get_equiv_atoms(self):
-
+        """Returs a list where each entry represents the index to the
+        asymmetric atom. If P1 is assumed, then it just returns a list
+        of the range of the atoms."""
         if self.sym:
-            #TEMP: pretend "P1"
-            #return range(len(self.frac_coords))
             return self.dataset["equivalent_atoms"]
         else:
             return range(len(self._element_symbols))

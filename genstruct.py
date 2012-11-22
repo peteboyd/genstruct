@@ -649,7 +649,6 @@ class Structure(object):
         """ return True if all bonds in the structure are bonded """
         unsat_bonds = len([1 for bu in self.building_units for cp in
                            bu.connect_points if not cp.bonded])
-        info("there are %i unsaturated bonds"%(unsat_bonds))
         if unsat_bonds == 0:
             return True
         return False
