@@ -1,4 +1,4 @@
-[Metal Isolated2]
+[Cobalt AQEQES]
 index = 1
 metal = True
 topology = bcu
@@ -39,7 +39,7 @@ connectivity:
     3      -1.861  -2.497   1.468      -0.354  -0.658   0.665      -0.300  -0.453  -0.840    1    None
     4       1.861  -2.497  -1.468       0.354  -0.658  -0.665       0.359  -0.562   0.746    1    None
 bond_constraints:
-[Organic Isolated]
+[1,2,4,5-benzenetetracarboxylate]
 index = 2
 metal = False
 topology = bcu
