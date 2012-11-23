@@ -251,7 +251,7 @@ class BuildingUnit(object):
         """
         angle = calc_angle(self_point.para[:3], -connect_point.para[:3])
         # in case the angle is zero
-        if np.allclose(angle%np.pi, 0.):
+        if np.allclose(angle, 0.):
             trans_v = connect_point.coordinates - \
                       self_point.coordinates
 
@@ -263,6 +263,12 @@ class BuildingUnit(object):
             return
 
         axis = np.cross(self_point.para[:3], connect_point.para[:3])
+        # check for parallel parameters
+        if np.allclose(axis, np.zeros(3), atol=0.02):
+            # They are aligned parallel, must be rotated 180 degrees.
+            axis = self_point.perp[:3]
+            angle = np.pi
+        
         axis = axis / length(axis)
 
         if np.allclose(self.COM, np.zeros(3)):
@@ -273,7 +279,8 @@ class BuildingUnit(object):
         # TODO(pboyd): applying this transform one by one is 
         # really inefficient, and should be done to a giant array
         trans_v = connect_point.coordinates - np.dot(R, 
-                                self_point.coordinates)
+                               self_point.coordinates)
+        
         for atom in self.atoms:
             atom.coordinates = np.dot(R, atom.coordinates) + trans_v
 
@@ -300,20 +307,39 @@ class BuildingUnit(object):
         # although with the following corrective measures, it typically
         # goes down to 6e-4 rad
         tol = min(angle, 0.06)
-        if not np.allclose(calc_angle(np.dot(R[:3,:3], 
-                           self_point.perp[:3]), 
-                           connect_point.perp),0., atol=tol):
+        #check_vect = np.dot(R[:3,:3], self_point.perp[:3])
+        check_vect = np.dot(self_point.perp[:3], R[:3,:3])
+        if not np.allclose(calc_angle(check_vect, 
+                           connect_point.perp),0.,
+                           atol=tol):
+            init_angle = calc_angle(check_vect, connect_point.perp)
+            debug("initial angle: %f"%init_angle)
             angle = -angle 
             R = rotation_matrix(axis, angle, 
                                 point=self_point.coordinates)
-            debug("%f"%calc_angle(np.dot(R[:3,:3],self_point.perp[:3]),connect_point.perp))
+            
+            #check_vect = np.dot(R[:3,:3], self_point.perp[:3])
+            check_vect = np.dot(self_point.perp[:3], R[:3,:3])
+            if calc_angle(check_vect, connect_point.perp) > init_angle:
+                # do some extra rotation.
+                R = np.dot(rotation_matrix(axis, -angle,
+                                    point=self_point.coordinates),
+                           rotation_matrix(axis, init_angle,
+                                    point=self_point.coordinates))
+                check_vect = np.dot(self_point.perp[:3], R[:3,:3])
+                
+        debug("final angle: %f"%calc_angle(check_vect, connect_point.perp))
 
         for atom in self.atoms:
-            atom.coordinates = np.dot(R, atom.coordinates)
+            #atom.coordinates = np.dot(R, atom.coordinates)
+            atom.coordinates = np.dot(atom.coordinates, R)
         for cp in self.connect_points:
-            cp.coordinates = np.dot(R, cp.coordinates)
-            cp.para[:3] = np.dot(R[:3,:3], cp.para[:3])
-            cp.perp[:3] = np.dot(R[:3,:3], cp.perp[:3])
+            #cp.coordinates = np.dot(R, cp.coordinates)
+            #cp.para[:3] = np.dot(R[:3,:3], cp.para[:3])
+            #cp.perp[:3] = np.dot(R[:3,:3], cp.perp[:3])
+            cp.coordinates = np.dot(cp.coordinates, R)
+            cp.para[:3] = np.dot(cp.para[:3], R[:3,:3])
+            cp.perp[:3] = np.dot(cp.perp[:3], R[:3,:3])
 
     def calculate_COM(self):
         self.COM = \
@@ -722,7 +748,7 @@ class Structure(object):
         # check if lattice needs to be inverted
         if self.cell.lattice[2][2] < 0.:
             # invert the cell
-            self.cell.lattice[2][2] = -1. * self.lattice[2][2]
+            self.cell.lattice[2][2] = -1. * self.cell.lattice[2][2]
             # do a 1-scaled_coords.
             for bu in self.building_units:
                 for atom in bu.atoms:
@@ -939,7 +965,9 @@ class Cell(object):
         x_rotaxis = np.cross(self.lattice[0], xaxis)
         x_rotaxis = (x_rotaxis)/length(x_rotaxis)
         RX = rotation_matrix(x_rotaxis, x_rotangle)
-        self.lattice = np.dot(RX[:3,:3], self.lattice)
+        # note the order of the dot product is reversed than compared with the
+        # rotation of the building units.
+        self.lattice = np.dot(self.lattice, RX[:3,:3])
         
         # second: rotation to the xy - plane
         projx_b = self.lattice[1] - project(self.lattice[1], xaxis)
@@ -947,12 +975,11 @@ class Cell(object):
         xy_rotaxis = xaxis
         RXY = rotation_matrix(xy_rotaxis, xy_rotangle)
         # test to see if the rotation is in the right direction
-        testvect = np.dot(RXY[:3,:3], projx_b)
+        testvect = np.dot(projx_b, RXY[:3,:3])
         testangle = calc_angle(yaxis, testvect)
         if not np.allclose(testangle, 0., atol = 1e-3):
             RXY = rotation_matrix(-xy_rotaxis, xy_rotangle)
-        self.lattice = np.dot(RXY[:3,:3], self.lattice)
-        # third change: -z to +z direction
+        self.lattice = np.dot(self.lattice, RXY[:3,:3])
         return
 
         
@@ -970,8 +997,7 @@ class Database(list):
         self.readfile(filename)
         # get extension of file name without leading directories.
         self.extension = filename.split('/')[-1]
-        if ".dat" in self.extension:
-            self.extension.strip(".dat")
+        self.extension = self.extension.rstrip(".dat")
             
     def readfile(self, filename):
         """
