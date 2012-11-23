@@ -567,8 +567,11 @@ class Structure(object):
         parallel.
 
         """
-        if parallel(-cp1.para, cp2.para, tol=0.2):
-            if parallel(cp1.perp, cp2.perp, tol=0.2):
+        # FIXME(pboyd): note a tolerance of 0.2 corresponds to 30 degrees!
+        # this has been lowered to 0.05 and should be tested across a
+        # range of existing mofs.
+        if parallel(-cp1.para, cp2.para, tol=0.05):
+            if parallel(cp1.perp, cp2.perp, tol=0.05):
                 return True
         return False
 
