@@ -526,6 +526,9 @@ class Structure(object):
                     # be local
                     svect = self.cell.periodic_shift(dvect.copy())       
                     # test for local bond
+                    debug("comparing (%9.5f, %9.5f, %9.5f) and "
+                          %(tuple(cp1.para[:3]))+"(%9.5f, %9.5f, %9.5f)"
+                          %(tuple(cp2.para[:3])))
                     if np.allclose(length(svect), 0., atol=0.4):
                         debug("local bond found between "
                               +"#%i %s, bond %i and "
@@ -564,7 +567,7 @@ class Structure(object):
         parallel.
 
         """
-        if parallel(-cp1.para, cp2.para, tol=0.2): 
+        if parallel(-cp1.para, cp2.para, tol=0.2):
             if parallel(cp1.perp, cp2.perp, tol=0.2):
                 return True
         return False
