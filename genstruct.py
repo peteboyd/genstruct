@@ -251,7 +251,7 @@ class BuildingUnit(object):
         """
         angle = calc_angle(self_point.para[:3], -connect_point.para[:3])
         # in case the angle is zero
-        if np.allclose(angle, 0.):
+        if np.allclose(angle%np.pi, 0.):
             trans_v = connect_point.coordinates - \
                       self_point.coordinates
 
@@ -719,6 +719,17 @@ class Structure(object):
         """Write final files."""
         # determine the bonding sequence.
         self.cell.reorient()
+        # check if lattice needs to be inverted
+        if self.cell.lattice[2][2] < 0.:
+            # invert the cell
+            self.cell.lattice[2][2] = -1. * self.lattice[2][2]
+            # do a 1-scaled_coords.
+            for bu in self.building_units:
+                for atom in bu.atoms:
+                    atom.scaled_coords = 1 - atom.scaled_coords
+        # re-invert cell (is it necessary to invert before this?)
+        self.cell.get_inverse()
+        
         met_lines = ""
         org_lines = ""
         for bu in base_building_units:
@@ -849,7 +860,7 @@ class Cell(object):
         normvect = unit_vector(vector[:3])
 
         for cellv in self.nlattice[:self.index]:
-            if np.allclose(np.dot(cellv, normvect), 1):
+            if np.allclose(np.dot(cellv, normvect), 1, atol=0.1):
                 debug("vector a linear combination of existing"
                            +" boundaries")
                 return False
@@ -942,12 +953,6 @@ class Cell(object):
             RXY = rotation_matrix(-xy_rotaxis, xy_rotangle)
         self.lattice = np.dot(RXY[:3,:3], self.lattice)
         # third change: -z to +z direction
-        if self.lattice[2][2] < 0.:
-            # invert the cell
-            self.lattice[2][2] = -1. * self.lattice[2][2]
-            # do a 1-scaled_coords.
-        # re-invert cell (is it necessary to invert before this?)
-        self.get_inverse()
         return
 
         
@@ -965,6 +970,9 @@ class Database(list):
         self.readfile(filename)
         # get extension of file name without leading directories.
         self.extension = filename.split('/')[-1]
+        if ".dat" in self.extension:
+            self.extension.strip(".dat")
+            
     def readfile(self, filename):
         """
         Populate the list with building units from the
@@ -1268,7 +1276,7 @@ def main():
     if len(sys.argv) > 1:
         file = sys.argv[1]
     else:
-        file = "testdb"
+        file = "testdb.dat"
     data = Database(file)
     Generate(data)
 
