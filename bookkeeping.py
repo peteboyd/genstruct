@@ -344,13 +344,22 @@ class CIF(object):
             btest = [i for i in indices for j in bondlist if i==j]
             # TODO(pboyd): maybe exclude bonds which are through periodic
             # boundaries...
+            for test in btest:
+                if test not in utest:
+                    uniques.append(test)
+                    bondlist
             if btest and not utest:
                 uniques.append(btest[0])
                 bondlist += [i for i in atoms[btest[0]].bonds]
-            else:
-                # this condition is a failsafe.
-                uniques.append(unique)
-                bondlist += [i for i in atoms[unique].bonds]
+        if len(uniques) < len(list(set(equivalent_atoms))):
+            # determine which atom is not in the list of uniques
+            for atom in list(set(equivalent_atoms)):
+                indices = [atom] + self.equiv_dic[unique]
+                utest = [1 for i in indices for j in uniques if i==j]
+                if not utest:
+                    uniques.append(atom)
+        #TODO(pboyd): check if uniques list is greater than the set of
+        # equivalent atoms.
         return uniques
 
     def get_equiv_dic(self, equivalent_atoms):
