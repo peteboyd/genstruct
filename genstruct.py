@@ -993,7 +993,7 @@ class Database(list):
         self.readfile(filename)
         # get extension of file name without leading directories.
         self.extension = filename.split('/')[-1]
-        self.extension = self.extension.rstrip(".dat")
+        self.extension = self.extension.split(".dat")[0]
             
     def readfile(self, filename):
         """
