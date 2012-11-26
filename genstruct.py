@@ -1070,7 +1070,7 @@ class Generate(object):
         base_building_units = deepcopy(bu_db)
         for bu in bu_db:
             if bu.specialbu:
-                blocks += [i for i in bu.specialbu]
+                base_building_units += [i for i in bu.specialbu]
 
         # assign some indices etc..
         for id, bu in enumerate(base_building_units):
@@ -1251,14 +1251,29 @@ class Generate(object):
         # check if the bond is already bonded
         if bond.bonded:
             return False
-        if (bond.special == newbond.constraint) or (
-            newbond.special == bond.constraint):
-            if bond.special is None and newbond.special is None and \
-                    bond.metal == newbond.metal:
+        
+        # check if one of the bonds is special.  Then make sure the other bond
+        # is constrained to that special bond.
+        if bond.special is not None:
+            if newbond.constraint != bond.special:
                 return False
-            return True
-        else:
-            return False
+        if bond.constraint is not None:
+            if newbond.special != bond.constraint:
+                return False
+        if newbond.special is not None:
+            if bond.constraint != newbond.special:
+                return False
+        if newbond.constraint is not None:
+            if bond.special != newbond.constraint:
+                return False
+        
+        # check if the bond is metal-metal
+        if (not newbond.special)and(not newbond.constraint)and(
+            not bond.special)and(not bond.constraint):
+            if bond.metal == newbond.metal:
+                return False
+        # otherwise return True
+        return True
 
     def random_insert(self, bu_db):
         """ selects a building unit at random to seed growth """
