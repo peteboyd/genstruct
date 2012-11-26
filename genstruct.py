@@ -307,8 +307,7 @@ class BuildingUnit(object):
         # although with the following corrective measures, it typically
         # goes down to 6e-4 rad
         tol = min(angle, 0.06)
-        #check_vect = np.dot(R[:3,:3], self_point.perp[:3])
-        check_vect = np.dot(self_point.perp[:3], R[:3,:3])
+        check_vect = np.dot(R[:3,:3], self_point.perp[:3])
         if not np.allclose(calc_angle(check_vect, 
                            connect_point.perp),0.,
                            atol=tol):
@@ -318,28 +317,25 @@ class BuildingUnit(object):
             R = rotation_matrix(axis, angle, 
                                 point=self_point.coordinates)
             
-            #check_vect = np.dot(R[:3,:3], self_point.perp[:3])
-            check_vect = np.dot(self_point.perp[:3], R[:3,:3])
+            check_vect = np.dot(R[:3,:3], self_point.perp[:3])
             if calc_angle(check_vect, connect_point.perp) > init_angle:
                 # do some extra rotation.
-                R = np.dot(rotation_matrix(axis, -angle,
+                R = np.dot(rotation_matrix(axis, init_angle,
                                     point=self_point.coordinates),
-                           rotation_matrix(axis, init_angle,
+                           rotation_matrix(axis, -angle,
                                     point=self_point.coordinates))
-                check_vect = np.dot(self_point.perp[:3], R[:3,:3])
+                check_vect = np.dot(R[:3,:3], self_point.perp[:3])
+                
                 
         debug("final angle: %f"%calc_angle(check_vect, connect_point.perp))
 
         for atom in self.atoms:
-            #atom.coordinates = np.dot(R, atom.coordinates)
-            atom.coordinates = np.dot(atom.coordinates, R)
+            atom.coordinates = np.dot(R, atom.coordinates)
+            #atom.coordinates = np.dot(atom.coordinates, R)
         for cp in self.connect_points:
-            #cp.coordinates = np.dot(R, cp.coordinates)
-            #cp.para[:3] = np.dot(R[:3,:3], cp.para[:3])
-            #cp.perp[:3] = np.dot(R[:3,:3], cp.perp[:3])
-            cp.coordinates = np.dot(cp.coordinates, R)
-            cp.para[:3] = np.dot(cp.para[:3], R[:3,:3])
-            cp.perp[:3] = np.dot(cp.perp[:3], R[:3,:3])
+            cp.coordinates = np.dot(R, cp.coordinates)
+            cp.para[:3] = np.dot(R[:3,:3], cp.para[:3])
+            cp.perp[:3] = np.dot(R[:3,:3], cp.perp[:3])
 
     def calculate_COM(self):
         self.COM = \
@@ -1145,8 +1141,10 @@ class Generate(object):
                         new_struct.insert(cbu, cbond, 
                                    add_bu, add_bond)
                         if not new_struct.overlap_bu(add_bu):
-                            if new_struct.saturated() and \
-                                    new_struct.cell.index == 3:
+                            if (new_struct.saturated() and 
+                                    new_struct.cell.index == 3 and 
+                                    self.struct_building_set(new_struct,
+                                                             base_building_units)):
                                 stopwatch.timestamp()
                                 info("Structure Generated! Timing reports "+
                                      "%f seconds"%stopwatch.timer)
@@ -1185,6 +1183,23 @@ class Generate(object):
             structures = add_list
         return
 
+    def struct_building_set(self, struct, base_units):
+        """Returns True if the structure contains representations of
+        all the base_units.
+        
+        """
+        base_indices = [bu.index for bu in base_units]
+        base_indices = list(set(base_indices))
+        base_indices.sort()
+        
+        struct_indices = [bu.index for bu in struct.building_units]
+        struct_indices = list(set(struct_indices))
+        struct_indices.sort()
+        
+        if base_indices == struct_indices:
+            return True
+        return False
+        
     def get_symmetry_info(self, bu, cp, add_bu, add_cp):
         """Determine symmmetry, building unit types and distances between
         connect_points to make sure that no redundancy is done in the
