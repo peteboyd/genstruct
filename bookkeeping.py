@@ -14,6 +14,11 @@ from logging import warning, debug, error, info, critical
 from operations import *
 from elements import *
 import numpy as np
+try:
+    import pyspglib._spglib as spg
+except ImportError:
+    warning("Symmetry library couldn't be loaded, all structures will "+
+            "have P1 symmetry.")
 
 xyzbondfmt = "%s%12.5f%12.5f%12.5f " +\
              "atom_vector%12.5f%12.5f%12.5f " +\
@@ -440,6 +445,11 @@ class Symmetry(object):
         self._numbers = np.array([ATOMIC_NUMBER.index(i) for i in 
                                   self._element_symbols])
         self.dataset = {}
+        if self.sym:
+            try:
+                spg
+            except NameError:
+                self.sym = False
         self.refine_cell()
 
     def refine_cell(self):
@@ -447,7 +457,6 @@ class Symmetry(object):
         get refined data from symmetry finding
         """
         if self.sym:
-            import pyspglib._spglib as spg
             # Temporary storage of structure info
             _lattice = self._lattice.T.copy()
             _scaled_coords = self._scaled_coords.copy()

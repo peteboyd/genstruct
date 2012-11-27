@@ -761,7 +761,7 @@ class Structure(object):
             else:
                 org_lines += "_o%i"%(bu.index)
         filename = outdir + "str" + met_lines + org_lines + "_%s"%(topology)
-        cif_file = CIF(self, sym=False)
+        cif_file = CIF(self, sym=True)
         cif_file.write_cif(filename)
         
     def __copy__(self):
