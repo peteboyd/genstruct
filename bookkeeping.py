@@ -192,23 +192,17 @@ class CIF(object):
         """
         Include numbered labels for each atom.
         """
-        allatoms = self.symmetry.get_equiv_atoms()
         atomdic = {}
         labeldic = {}
-        for atom in set(equiv_atoms):
-            label = self.symmetry._element_symbols[atom]
+        for unq_atom in set(equiv_atoms):
+            label = self.symmetry._element_symbols[unq_atom]
             atomdic.setdefault(label,0)
             atomdic[label] += 1
-            labeldic[atom] = label + str(atomdic[label])
+            labeldic[unq_atom] = label + str(atomdic[label])
 
         label = []
-        for atoms in allatoms:
-            list = [atoms] + self.equiv_dic[atoms]
-            for i in list:
-                try:
-                    label.append(labeldic[i])
-                except:
-                    pass
+        for atom in equiv_atoms:
+            label.append(labeldic[atom])
 
         return label 
 
@@ -292,11 +286,10 @@ class CIF(object):
 
         # now check to see which atoms to keep in the cif file.
         equivalent_atoms = self.symmetry.get_equiv_atoms()
-        self.equiv_dic = self.get_equiv_dic(equivalent_atoms)
-        unique_atoms = self.get_unique_atoms(equivalent_atoms)
+        unique_atoms = list(set(equivalent_atoms)) 
         unique_coords = [list(self.symmetry._scaled_coords[i]) for i in unique_atoms]
         unique_symbols = [self.symmetry._element_symbols[i] for i in unique_atoms]
-        unique_labels = self.add_labels(unique_atoms)
+        unique_labels = self.add_labels(equivalent_atoms)
         atoms_fftype = [atom.force_field_type for bu in 
                 self.struct.building_units for atom in bu.atoms]
         len_orig = self.struct.natoms
@@ -310,8 +303,7 @@ class CIF(object):
                     unique_fftype[idx]] + unique_coords[idx]
             lines += "%-7s%-6s%-5s%10.5f%10.5f%10.5f\n"%(tuple(line))
         lines += "\n"
-        
-        connect_table = self.update_connect_table(unique_atoms)
+        connect_table = self.update_connect_table(equivalent_atoms)
         lines += "loop_\n"
         lines += "_geom_bond_atom_site_label_1\n"
         lines += "_geom_bond_atom_site_label_2\n"
@@ -327,78 +319,21 @@ class CIF(object):
         ciffile.close()
         return
 
-    def get_unique_atoms(self, equivalent_atoms):
-        """Determine which unique atoms are bonded using the bonding table."""
-        table = self.struct.bonds
-        atoms = [atom for bu in self.struct.building_units
-                for atom in bu.atoms]
-        # seed with the first entry in the equivalent_atoms
-        uniques = [equivalent_atoms[0]]
-        # for each entry in uniques, there is a bond list to atoms within the
-        # structure.  One of these bonds will be to another asymmetric atom
-        # or else this structure is not connected. As uniques grows with
-        # bonded asymmetric atoms, the list of possible bonds grows.
-        bondlist = atoms[equivalent_atoms[0]].bonds[:]
-        for unique in list(set(equivalent_atoms)):
-            # make a list of all the equivalent atoms with unique
-            indices = [unique] + self.equiv_dic[unique]
-            # check to see if the unique atom is already represented
-            utest = [1 for i in indices for j in uniques if i==j]
-            # check to see if a bond exists between them.
-            # FIXME(pboyd): what if there is more than one? PROBLEMS!
-            btest = [i for i in indices for j in bondlist if i==j]
-            # TODO(pboyd): maybe exclude bonds which are through periodic
-            # boundaries...
-            for test in btest:
-                if test not in utest:
-                    uniques.append(test)
-                    bondlist
-            if btest and not utest:
-                uniques.append(btest[0])
-                bondlist += [i for i in atoms[btest[0]].bonds]
-        if len(uniques) < len(list(set(equivalent_atoms))):
-            # determine which atom is not in the list of uniques
-            for atom in list(set(equivalent_atoms)):
-                indices = [atom] + self.equiv_dic[unique]
-                utest = [1 for i in indices for j in uniques if i==j]
-                if not utest:
-                    uniques.append(atom)
-        #TODO(pboyd): check if uniques list is greater than the set of
-        # equivalent atoms.
-        return uniques
-
-    def get_equiv_dic(self, equivalent_atoms):
-        """Returns a dictionary of atom indices as keys and a list of equivalent
-        atoms as the values.  There is redundancy such that each key should
-        represent one of the atoms in the list.
-        
-        """
-        equiv_dic = {}
-        # set up dictionary of equivalent atom lists.
-        [equiv_dic.setdefault(i,[]).append(p) for p, i in 
-                enumerate(equivalent_atoms)]
-        [equiv_dic.setdefault(p,[]).append(i) for p, i in
-                enumerate(equivalent_atoms)] 
-        # eliminate duplicates and self-referenced atoms
-        for key, value in equiv_dic.iteritems():
-            equiv_dic[key] = list(set(value))
-            for idx, val in enumerate(equiv_dic[key]):
-                if key == val:
-                    equiv_dic[key].pop(idx)
-        return equiv_dic
-
-    def update_connect_table(self, uniques):
+    def update_connect_table(self, equivalent_atoms):
         """Return only the bonds which exist between asymmetric atoms."""
         conn_table = []
-        taken = []
-        for bond in self.struct.bonds:
-            if bond[0] in uniques and bond[1] in uniques and \
-                    (bond[0],bond[1]) not in taken:
-                conn_table.append(bond)
-                taken.append((bond[0],bond[1]))
-                taken.append((bond[1],bond[0]))
-
-        return conn_table
+        equiv_atoms = {}
+        for idx, atom in enumerate(equivalent_atoms):
+            equiv_atoms[idx] = atom
+        tempdic = {}
+        atomlist = [i for bu in self.struct.building_units for i in bu.atoms]
+        for atm1, atm2, type, length in self.struct.bonds:
+            eatm1 = equiv_atoms[atm1]
+            eatm2 = equiv_atoms[atm2]
+            atmind = [eatm1, eatm2]
+            atmind.sort()
+            tempdic[tuple(atmind)] = (eatm1, eatm2, type, length)
+        return tempdic.values() 
 
     def index_check(self, index, uniques):
         """ 
