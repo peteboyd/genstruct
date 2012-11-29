@@ -471,7 +471,6 @@ class Structure(object):
         self.sym_id = []
         self.directives = [] # keep track of bonding directives
 
-
     def debug_xyz(self):
         cellformat = "H%12.5f%12.5f%12.5f " + \
                 "atom_vector%12.5f%12.5f%12.5f\n"
@@ -509,16 +508,18 @@ class Structure(object):
         add_bu.align_to(add_bond, bond)  # align the perp vectors
         # re-order atom indices within bu.atoms
         # to coincide with connectivity
+        
         for atom in add_bu.atoms:
             # adjust the atom index
             atom.index += self.natoms
             # adjust the bonding indices for each atom
-            for bidx in atom.bonds:
-                bidx += self.natoms
+            for idx, bnd in enumerate(atom.bonds):
+                atom.bonds[idx] = bnd + self.natoms
         # update the number of atoms in the structure
         self.natoms += len(add_bu.atoms)
         # introduce bond between joined connectivity points
         self.update_connectivities(bu, bond, add_bu, add_bond)
+        self.store_building_unit_bonds(add_bu)
         # check for bonding between other existing building units
         self.bonding()
         self.debug_xyz()  # store coordinates
@@ -539,7 +540,7 @@ class Structure(object):
             bu1 = self.building_units[ibu1]
             ibu2 = cp2.bu_order
             bu2 = self.building_units[ibu2]
-            if valid_bond(bu1, cp1, bu2, cp2):
+            if valid_bond(cp1, cp2):
                 if self.is_aligned(cp1, cp2):
                     # determine the vector between connectpoints
                     dvect = (cp2.coordinates[:3] - 
@@ -573,8 +574,7 @@ class Structure(object):
                         self.cell.origin[self.cell.index] =\
                                 cp1.coordinates[:3].copy()
                         self.cell.add_vector(dvect)
-                        self.update_connectivities(bu1, cp1, 
-                                                 bu2, cp2)
+                        self.update_connectivities(bu1, cp1, bu2, cp2)
                         cp1.bond_from_search = True
                         cp2.bond_from_search = True           
                     else:
@@ -602,18 +602,15 @@ class Structure(object):
         Check the bu supplied for overlap with all other atoms
         """
         # scale the van der waals radii by sf
-        sf = 0.004
+        sf = 0.4
+        atomlist = [atom for bu in self.building_units for atom in bu.atoms]
         for atom in bu.atoms:
             elem, coords = self.min_img_shift(atom=atom.coordinates)
-            # debug to see if the shift is happening
-            #check = np.append([atom.coordinates[:3]], coords, axis=0)
-            #writexyz(["Bi"]+elem, check)
-            #writexyz([i.element for i in bu.atoms], [i.coordinates[:3]\
-            #          for i in bu.atoms], name = "noncorect")
             # distance checks
             distmat = distance.cdist([atom.coordinates[:3]], coords)
             # check for atom == atom, bonded
             excl = [atom.index] + [idx for idx in atom.bonds]
+
             for idx, dist in enumerate(distmat[0]):
                 if idx not in excl:
                     if dist < (Radii[atom.element]+ Radii[elem[idx]])*sf:
@@ -700,15 +697,6 @@ class Structure(object):
         symmetry_label = tuple(symmetry_label)
         cp.bonded, add_cp.bonded = True, True
         cp.bond_label, add_cp.bond_label = symmetry_label, symmetry_label
-        # join all inter-building unit bonds to the global bonds.
-        for bond in add_bu.bonds:
-            # check if bonds are to Atom()s or to ConnectPoint()s
-            if isinstance(bond.frm, ConnectPoint) or \
-                    isinstance(bond.to, ConnectPoint):
-                pass
-            else:
-                self.bonds.append((bond.frm.index, bond.to.index,
-                                   bond.type, bond.distance))
         for atm in cp.atoms:
             for atm2 in add_cp.atoms:
                 # periodic shift atm2 in terms of atm to calculate distances
@@ -726,6 +714,21 @@ class Structure(object):
                     # with the connect_point, in which case raise a 
                     # warning. (something wrong with the input)
 
+    def store_building_unit_bonds(self, add_bu):
+        """Store the bonds local to the building units to the structures
+        bonding memory.  A bit redundant, but makes it easier when files
+        are written.
+
+        """
+        for bond in add_bu.bonds:
+            # check if bonds are to Atom()s or to ConnectPoint()s
+            if isinstance(bond.frm, ConnectPoint) or \
+                    isinstance(bond.to, ConnectPoint):
+                pass
+            else:
+                self.bonds.append((bond.frm.index, bond.to.index,
+                                   bond.type, bond.distance))
+
     def get_scaled(self):
         """
         Add scaled coordinates to all of the atoms in the structure.
@@ -737,7 +740,7 @@ class Structure(object):
                 atm.scaled_coords = atm.scaled_coords - np.floor(atm.scaled_coords)
         return
 
-    def finalize(self, base_building_units, outdir=""):
+    def finalize(self, base_building_units, outdir="", csvfile=None):
         """Write final files."""
         # determine the bonding sequence.
         self.cell.reorient()
@@ -749,20 +752,34 @@ class Structure(object):
             for bu in self.building_units:
                 for atom in bu.atoms:
                     atom.scaled_coords = 1 - atom.scaled_coords
-        # re-invert cell (is it necessary to invert before this?)
         self.cell.get_inverse()
-        
         met_lines = ""
         org_lines = ""
+        organic_ind = []
         for bu in base_building_units:
             if bu.metal:
+                metal_ind = bu.index
                 met_lines += "_m%i"%(bu.index)
                 topology = bu.topology
             else:
+                organic_ind.append(bu.index)
                 org_lines += "_o%i"%(bu.index)
-        filename = outdir + "str" + met_lines + org_lines + "_%s"%(topology)
+        basename = "str" + met_lines + org_lines + "_%s"%(topology)
+        filename = outdir + basename 
+
         cif_file = CIF(self, sym=True)
         cif_file.write_cif(filename)
+
+        # hack job on the csvfile... didn't plan ahead on this one.
+        if csvfile:
+            hm_name = cif_file.symmetry.get_space_group_name()
+            sym_number = cif_file.symmetry.get_space_group_number()
+            csvfile.add_data(basename,
+                    metal_index = metal_ind,
+                    organic_index1 = organic_ind[0],
+                    organic_index2 = organic_ind[1],
+                    h_m_symmetry_name = hm_name,
+                    symmetry_number = sym_number)
         
     def __copy__(self):
         """
@@ -841,18 +858,6 @@ class Structure(object):
 
             dup.building_units.append(copybu)
 
-        #for bond in self.bonds:
-        #    cbond = copy(bond)
-        #    to = [axx for axx in cats if axx.index
-        #            == bond.to.index]
-        #    to = to[0]
-        #    frm = [axx for axx in cats if axx.index
-        #            == bond.frm.index]
-        #    frm = frm[0]
-
-        #    cbond.to = to
-        #    cbond.frm = frm
-        #    dup.bonds.append(cbond)
         return dup
 
 class Cell(object):
@@ -1035,6 +1040,8 @@ class Generate(object):
         # select 1 metal and 2 organic linkers to mix
         # for the sampling.
         self.outdir = "output." + building_unit_database.extension + "/"
+        self.csv = CSV()
+        self.csv.set_name(building_unit_database.extension)
         if not os.path.exists(self.outdir):
             os.makedirs(self.outdir)
 
@@ -1044,6 +1051,8 @@ class Generate(object):
         for combo in combinations:
             building_units = [building_unit_database[i] for i in combo]
             self.exhaustive_sampling(building_units)
+
+        self.csv.write_file()
 
     def set_combinations(self, num):
         """ Generates all combinations of a database with length n"""
@@ -1121,7 +1130,7 @@ class Generate(object):
                     if tuple(new_id) not in symtrack:
                         # make a copy of the structure so it can be manipulated
                         # with out altering the existing structure.
-                        new_struct = copy(structure)
+                        new_struct = deepcopy(structure)
                         # re-reference the building units and connect_points
                         # using the self-referencing variables in bond[0]
                         cbu = new_struct.building_units[bond[0].bu_order]
@@ -1130,7 +1139,6 @@ class Generate(object):
                         add_bond = add_bu.connect_points[bond[1].order]
                         #TODO(pboyd): this copying method really slows down the
                         #code, should find a better alternative.
-                        
                         debug("Added building unit #%i %s,"
                             %(len(structure.building_units),
                                 add_bu.name)+
@@ -1151,7 +1159,8 @@ class Generate(object):
                                 
                                 new_struct.get_scaled()
                                 new_struct.finalize(base_building_units,
-                                                    outdir = self.outdir)
+                                                    outdir = self.outdir,
+                                                    csvfile = self.csv)
                                 # NOTE the next two lines should be in a separate
                                 # function which is or is not called based on
                                 # a DEBUG flag.
@@ -1231,49 +1240,13 @@ class Generate(object):
         pop = []
         for id, bondpair in enumerate(bondlist):
             # check for bond compatibility
-            if not self.spec_compatible(bondpair[0], bondpair[1]):
+            if not valid_bond(bondpair[0], bondpair[1]):
                 pop.append(id)
 
         # remove illegal bonds from list
         pop.sort()
         [bondlist.pop(i) for i in reversed(pop)]
         return bondlist
-
-    def spec_compatible(self, bond, newbond):
-        """
-        Determines if two connect_points are compatible
-        1) checks to see if both have the same special/constraint flag, which 
-            should be an [int] or [None]
-        2) if [None] then make sure both are not metal bonding units
-        
-        otherwise return False.
-        """
-        # check if the bond is already bonded
-        if bond.bonded:
-            return False
-        
-        # check if one of the bonds is special.  Then make sure the other bond
-        # is constrained to that special bond.
-        if bond.special is not None:
-            if newbond.constraint != bond.special:
-                return False
-        if bond.constraint is not None:
-            if newbond.special != bond.constraint:
-                return False
-        if newbond.special is not None:
-            if bond.constraint != newbond.special:
-                return False
-        if newbond.constraint is not None:
-            if bond.special != newbond.constraint:
-                return False
-        
-        # check if the bond is metal-metal
-        if (not newbond.special)and(not newbond.constraint)and(
-            not bond.special)and(not bond.constraint):
-            if bond.metal == newbond.metal:
-                return False
-        # otherwise return True
-        return True
 
     def random_insert(self, bu_db):
         """ selects a building unit at random to seed growth """
@@ -1288,14 +1261,7 @@ class Generate(object):
         for atom in bu.atoms:
             atom.index = seed.natoms
             seed.natoms += 1
-        for bond in bu.bonds:
-            # append the building units' bonds to the master
-            # bonding table.  This will be used to write the 
-            # cif file.
-            if not isinstance(bond.to, ConnectPoint) and not \
-                    isinstance(bond.frm, ConnectPoint):
-                seed.bonds.append((bond.frm.index, bond.to.index,
-                                   bond.type, bond.distance))
+        seed.store_building_unit_bonds(bu)
         # set building unit order = 0 for the connectpoints 
         for bu in seed.building_units:
             for bond in bu.connect_points:
@@ -1305,18 +1271,42 @@ class Generate(object):
         seed.bonding()      
         return [seed]
 
-def valid_bond(bu, cp, bu2, cp2):
-    if not cp.bonded and not cp2.bonded:
-        if (cp.special == cp2.constraint) or (cp.constraint
-            == cp2.special):
-            if cp.special == None:
-                if bu.metal == bu2.metal:
-                    return False
-                return True
-            else:
-                return True
 
-    return False
+def valid_bond(bond, newbond):
+    """
+    Determines if two connect_points are compatible
+    1) checks to see if both have the same special/constraint flag, which 
+        should be an [int] or [None]
+    2) if [None] then make sure both are not metal bonding units
+    
+    otherwise return False.
+    """
+    # check if the bond is already bonded
+    if bond.bonded or newbond.bonded:
+        return False
+    
+    # check if one of the bonds is special.  Then make sure the other bond
+    # is constrained to that special bond.
+    if bond.special is not None:
+        if newbond.constraint != bond.special:
+            return False
+    if bond.constraint is not None:
+        if newbond.special != bond.constraint:
+            return False
+    if newbond.special is not None:
+        if bond.constraint != newbond.special:
+            return False
+    if newbond.constraint is not None:
+        if bond.special != newbond.constraint:
+            return False
+    
+    # check if the bond is metal-metal
+    if (not newbond.special)and(not newbond.constraint)and(
+        not bond.special)and(not bond.constraint):
+        if bond.metal == newbond.metal:
+            return False
+    # otherwise return True
+    return True
 
 def write_debug_xyz(structure, count=[]):
     if len(count) == 0:
