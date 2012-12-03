@@ -755,15 +755,18 @@ class Structure(object):
         self.cell.get_inverse()
         met_lines = ""
         org_lines = ""
-        organic_ind = []
+        metal_ind, organic_ind = [], []
         for bu in base_building_units:
             if bu.metal:
-                metal_ind = bu.index
-                met_lines += "_m%i"%(bu.index)
+                metal_ind.append(bu.index)
                 topology = bu.topology
             else:
                 organic_ind.append(bu.index)
-                org_lines += "_o%i"%(bu.index)
+        for met in set(metal_ind):
+            met_lines += "_m%i"%(met)
+        for org in set(organic_ind):
+            org_lines += "_o%i"%(org)
+            
         basename = "str" + met_lines + org_lines + "_%s"%(topology)
         filename = outdir + basename 
 
@@ -779,7 +782,8 @@ class Structure(object):
                     organic_index1 = organic_ind[0],
                     organic_index2 = organic_ind[1],
                     h_m_symmetry_name = hm_name,
-                    symmetry_number = sym_number)
+                    symmetry_number = sym_number,
+                    build_directive = self.directives)     
         
     def __copy__(self):
         """
