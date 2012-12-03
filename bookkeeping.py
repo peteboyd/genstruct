@@ -52,7 +52,7 @@ class Log:
         else:
             self.file = file
         self.quiet = False 
-        self.verbose = True
+        self.verbose = False 
         self.default = False
 
         self._init_logging()
@@ -132,22 +132,22 @@ class CSV(object):
         self.data = {}
         self.csvname = "default"
 
-    def add_data(self, name, **kwargs):
+    def add_data(self, MOFname, **kwargs):
         # check if new keys are being introduced.  Existing dictionary
         # lists must be appended with None
 
         # is name in self.data?
-        self.data.setdefault(name,[None]*len(self.columns.keys()))
+        self.data.setdefault(MOFname,[None]*len(self.columns.keys()))
         # are the kwargs.keys() in self.columns.values()?
         [self.columns.setdefault(k, len(self.columns.keys())) 
             for k in kwargs.keys()]
 
         for k, v in kwargs.items():
             index = self.columns[k]
-            diff = (len(self.data[name])-1 - index)
+            diff = (len(self.data[MOFname])-1 - index)
             if diff < 0:
-                self.data[name] += [None]*abs(diff)
-            self.data[name][index] = v
+                self.data[MOFname] += [None]*abs(diff)
+            self.data[MOFname][index] = v
 
     def set_name(self, name):
         self.csvname = name
@@ -157,7 +157,7 @@ class CSV(object):
 
         # name is the only immutable column.  This column will contain
         # the names of the MOFs being reported.
-        titles += "#name,"
+        titles += "#MOFname,"
         titles += ",".join([str(i) for i in self.columns.keys()])
         titles += "\n"
 

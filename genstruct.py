@@ -766,6 +766,9 @@ class Structure(object):
             met_lines += "_m%i"%(met)
         for org in set(organic_ind):
             org_lines += "_o%i"%(org)
+        # temp fix for now
+        if len(set(organic_ind)) == 1:
+            org_lines += "_o%i"%(org)
             
         basename = "str" + met_lines + org_lines + "_%s"%(topology)
         filename = outdir + basename 
@@ -778,12 +781,12 @@ class Structure(object):
             hm_name = cif_file.symmetry.get_space_group_name()
             sym_number = cif_file.symmetry.get_space_group_number()
             csvfile.add_data(basename,
-                    metal_index = metal_ind,
+                    metal_index = metal_ind[0],
                     organic_index1 = organic_ind[0],
                     organic_index2 = organic_ind[1],
                     h_m_symmetry_name = hm_name,
                     symmetry_number = sym_number,
-                    build_directive = self.directives)     
+                    zzbuild_directive = self.directives)     
         
     def __copy__(self):
         """
@@ -1322,12 +1325,14 @@ def write_debug_xyz(structure, count=[]):
     file.close()
 
 def main():
-    Log()
     if len(sys.argv) > 1:
         file = sys.argv[1]
     else:
         file = "testdb.dat"
     data = Database(file)
+    base = file.split('/')[-1]
+    base = base.split(".dat")[0]
+    Log(file=base)
     Generate(data)
 
 if __name__ == '__main__':
