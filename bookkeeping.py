@@ -128,51 +128,31 @@ class CSV(object):
     """
 
     def __init__(self):
-        self.columns = {}
-        self.data = {}
-        self.csvname = "default"
+        self.data = []
+        self._csvname = "default"
+        self._datalen = 0 
 
-    def add_data(self, MOFname, **kwargs):
-        # check if new keys are being introduced.  Existing dictionary
-        # lists must be appended with None
-
-        # is name in self.data?
-        self.data.setdefault(MOFname,[None]*len(self.columns.keys()))
-        # are the kwargs.keys() in self.columns.values()?
-        [self.columns.setdefault(k, len(self.columns.keys())) 
-            for k in kwargs.keys()]
-
-        for k, v in kwargs.items():
-            index = self.columns[k]
-            diff = (len(self.data[MOFname])-1 - index)
-            if diff < 0:
-                self.data[MOFname] += [None]*abs(diff)
-            self.data[MOFname][index] = v
+    def add_data(self, **kwargs):
+        # make sure the length of each entry in data is the same.
+        self.data.append(kwargs)
+        self._datalen += 1
 
     def set_name(self, name):
-        self.csvname = name
+        self._csvname = name
 
     def write_file(self):
-        titles, data = "", ""
-
-        # name is the only immutable column.  This column will contain
-        # the names of the MOFs being reported.
-        titles += "#MOFname,"
-        titles += ",".join([str(i) for i in self.columns.keys()])
-        titles += "\n"
-
-        length = len(self.columns.keys())
-
-        for k, v in self.data.items():
-            diff = len(v) - length
-            if diff < 0:
-                v = v + [None]*abs(diff)
-            data += str(k) + ","
-            data += ",".join([str(i) for i in v])
-            data += "\n"
+        # Designed the CSV file specifically to report the titles in the order 
+        # here.
+        titles = "#MOFname,metal_index,organic_index1,organic_index2,"+\
+                "H_M_symmetry_name,symmetry_number,build_directive\n"
+        data = ""
+        for entry in range(self._datalen):
+            data += "%(MOFname)s,%(metal_index)i,"%(self.data[entry])
+            data += "%(organic_index1)i,%(organic_index2)i,"%(self.data[entry])
+            data += "%(h_m_symmetry_name)s,%(symmetry_number)i,"%(self.data[entry])
+            data += "%(build_directive)s\n"%(self.data[entry])
         lines = titles + data
-
-        csvfile = open(self.csvname + '.csv', "w")
+        csvfile = open(self._csvname + '.csv', "w")
         csvfile.writelines(lines)
         csvfile.close()
         

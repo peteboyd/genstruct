@@ -469,30 +469,32 @@ class Structure(object):
         # Store global bonds here
         self.bonds = []
         self.sym_id = []
+        self.debug = False  # have this parsed from command line
         self.directives = [] # keep track of bonding directives
 
     def debug_xyz(self):
-        cellformat = "H%12.5f%12.5f%12.5f " + \
-                "atom_vector%12.5f%12.5f%12.5f\n"
-        bondformat = "H%12.5f%12.5f%12.5f " + \
-                "atom_vector%12.5f%12.5f%12.5f " + \
-                "atom_vector%12.5f%12.5f%12.5f\n"
-        atomformat = "%s%12.5f%12.5f%12.5f\n"
+        if self.debug:
+            cellformat = "H%12.5f%12.5f%12.5f " + \
+                    "atom_vector%12.5f%12.5f%12.5f\n"
+            bondformat = "H%12.5f%12.5f%12.5f " + \
+                    "atom_vector%12.5f%12.5f%12.5f " + \
+                    "atom_vector%12.5f%12.5f%12.5f\n"
+            atomformat = "%s%12.5f%12.5f%12.5f\n"
 
-        lines = []
-        [lines.append(cellformat%tuple(list(self.cell.origin[ind]) + 
-                      list(self.cell.lattice[ind]))) for ind in range(
-                      self.cell.index)]
-        for bu in self.building_units:
-            [lines.append(bondformat%tuple(list(c.coordinates[:3]) +
-                list(c.para[:3]) + list(c.perp[:3]))) for c in bu.connect_points]
-            [lines.append(atomformat%tuple([a.element] + 
-                list(a.coordinates[:3]))) for a in bu.atoms]
+            lines = []
+            [lines.append(cellformat%tuple(list(self.cell.origin[ind]) + 
+                          list(self.cell.lattice[ind]))) for ind in range(
+                          self.cell.index)]
+            for bu in self.building_units:
+                [lines.append(bondformat%tuple(list(c.coordinates[:3]) +
+                    list(c.para[:3]) + list(c.perp[:3]))) for c in bu.connect_points]
+                [lines.append(atomformat%tuple([a.element] + 
+                    list(a.coordinates[:3]))) for a in bu.atoms]
 
-        n = len(lines)
+            n = len(lines)
 
-        self.xyz_lines += "%5i\ndebug\n"%n
-        self.xyz_lines += "".join(lines)
+            self.xyz_lines += "%5i\ndebug\n"%n
+            self.xyz_lines += "".join(lines)
 
     def insert(self, bu, bond, add_bu, add_bond):
 
@@ -780,13 +782,14 @@ class Structure(object):
         if csvfile:
             hm_name = cif_file.symmetry.get_space_group_name()
             sym_number = cif_file.symmetry.get_space_group_number()
-            csvfile.add_data(basename,
+            csvfile.add_data(
+                    MOFname = basename,
                     metal_index = metal_ind[0],
                     organic_index1 = organic_ind[0],
                     organic_index2 = organic_ind[1],
                     h_m_symmetry_name = hm_name,
                     symmetry_number = sym_number,
-                    zzbuild_directive = self.directives)     
+                    build_directive = self.directives)     
         
     def __copy__(self):
         """
