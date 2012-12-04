@@ -525,7 +525,7 @@ class Structure(object):
         # check for bonding between other existing building units
         self.bonding()
         self.debug_xyz()  # store coordinates
-        self.directives.append((bu.internal_index, bond.index,
+        self.directives.append((bu.order, bond.index,
                                 add_bu.index, add_bond.index))
         return
 
