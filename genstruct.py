@@ -1074,6 +1074,12 @@ class Generate(object):
 
     def metcount(self, combo):
         return len([i for i in combo if self.bu_database[i].metal])
+
+    def generate_from_directives(self, directives):
+        """Builds a MOF based on directives as tuples, starting with the
+        initial insert.
+        """
+        return
     
     def exhaustive_sampling(self, bu_db):
         """
@@ -1281,6 +1287,27 @@ class Generate(object):
         seed.bonding()      
         return [seed]
 
+def Functionalize(object):
+    """Class of methods to append functional groups to a Structure."""
+    
+    def __init__(self, structure):
+        self.max = 200  # Set upper limit of functionalizations per structure.
+        self.structure = structure
+    
+    def random_functionalization(self):
+        """Randomly functionalizes a structure."""
+        
+    def symmetric_functionalization(self):
+        """Symmetrically functionalizes a structure."""
+        
+def FunctionalGroup(object):
+    """Defines a list of Atoms corresponding to a functional group."""
+    
+    def __init__(self):
+        self.index = 0
+        self.name = ""
+        self.atoms = []
+        self.bonds = []
 
 def valid_bond(bond, newbond):
     """
