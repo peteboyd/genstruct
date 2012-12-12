@@ -1181,6 +1181,8 @@ class Generate(object):
                                 new_struct.finalize(base_building_units,
                                                     outdir = self.outdir,
                                                     csvfile = self.csv)
+                                fnl = Functionalize(new_struct, self.functional_groups)
+                                fnl.random_functionalization()
                                 # NOTE the next two lines should be in a separate
                                 # function which is or is not called based on
                                 # a DEBUG flag.
@@ -1294,10 +1296,10 @@ class Generate(object):
 class Functionalize(object):
     """Class of methods to append functional groups to a Structure."""
     
-    def __init__(self, structure, fg_database, directives):
+    def __init__(self, structure, fg_database):
         self.max = 200  # Set upper limit of functionalizations per structure.
         self.structure = deepcopy(structure)
-        self.functional_groups = copy.deepcopy(fg_database)
+        self.functional_groups = deepcopy(fg_database)
         
     def get_base_units(self):
         """Returns a list of base building units from the structure."""
@@ -1305,20 +1307,77 @@ class Functionalize(object):
         for building_unit in self.structure.building_units:
             # the dic keys are all the flags that make a
             # building unit unique.
-            dic[(bulding_unit.index, building_unit.metal,
+            dic[(building_unit.index, building_unit.metal,
                  building_unit.parent)] = deepcopy(building_unit)
         # return the list of unique building_units
         return dic.values()
+
+    def get_hydrogens(self, building_unit):
+        """Returns a list of hydrogen atom indices in each building unit."""
+        return [atom.internal_index for atom in
+                building_unit.atoms if atom.element == "H"]
         
-    def random_functionalization(self):
-        """Randomly functionalizes a structure."""
+    def generate(self, iterlist):
+        """Returns a random selection for hydrogen atom
+        atom substitution with a functional group.
+        
+        """
+        # select a random number in the range of the list
+        n = randrange(len(iterlist))
+        # generate all possible combinations of h atoms
+        pool = tuple(combinations(iterlist, n))
+        # randomly choose one of these.
+        return choice(pool)
+    
+    def choose_fnl_group(self, maxgroups):
+        """Return a random selection of functional groups from a combination
+        the length of which is determined by maxgroups.
+        
+        """
+        rrange = len(self.functional_groups)
+        pool = tuple(combinations(rrange, maxgroups))
+        return [deepcopy(self.functional_groups[i]) for i in choice(pool)]
+        
+    def random_functionalization(self, maxgroups=2):
+        """Randomly functionalizes a structure. Max groups dictates
+        the maximum number of functional groups included per Structure.
+        
+        What is randomized:
+        1) the number and combination of hydrogen atoms on each building unit.
+        2) the combination of functional groups for the MOF structure
+        3) the assignment of a functional group to each hydrogen site.
+        
+        """
+        h_atoms, functional_hist = {}, {}
         # determine base building units from structure
         base_building_units = self.get_base_units()
-        # select representative building unit
-        # randomly select hydrogens on each unit
-        # randomly choose two functional groups
-        # keep record so no repeats.. (this can be excluded with itertools)
-        
+        # generate dictionary of hydrogen atoms for each building unit
+        for building_unit in base_building_units:
+            id = (building_unit.index, building_unit.metal,
+                  building_unit.parent)
+            hydrogen_sites = self.get_hydrogens(building_unit)
+            h_atoms[id] = hydrogen_sites
+        done = False
+        while not done:
+            sites = {}
+            # randomly select hydrogens on each unit
+            for building_unit in base_building_units:
+                id = (building_unit.index, building_unit.metal,
+                      building_unit.parent)
+                sites[id] = generate(h_atoms[id])
+            # randomly choose functional groups
+            assigned_fnlgrps = self.choose_fnl_group(maxgroups)
+            # assign fnl groups to each hydrogen
+            for key, value in sites.items():
+                sites[key] = {value: choice(assigned_fnlgrps)}
+            
+            
+            # keep record so no repeats.
+            
+            # (building_unit index (hatom, fnlindex), (hatom, fnlindex))
+            
+            
+    
     def symmetric_functionalization(self):
         """Symmetrically functionalizes a structure."""
         
@@ -1337,10 +1396,6 @@ class FunctionalGroupDatabase(list):
         Populate the list with building units from the
         input file.
         """
-        # Multidict is in bookkeeping.py to account for duplicate
-        # names but mangles all the names up, so i will implement if
-        # needed, but otherwise we'll just use neat 'ol dict
-        #file = ConfigParser.SafeConfigParser(None, Multidict)
         file = ConfigParser.SafeConfigParser()
         file.read(filename)
         for idx, functional_group in enumerate(file.sections()):
