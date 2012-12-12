@@ -44,7 +44,7 @@ class Multidict(dict):
             key += str(self._unique)
         dict.__setitem__(self, key, val)
 
-class Log:
+class Log(object):
 
     def __init__(self, file=None):
         if file is None:
@@ -52,7 +52,7 @@ class Log:
         else:
             self.file = file
         self.quiet = False 
-        self.verbose = False 
+        self.verbose = True
         self.default = False
 
         self._init_logging()
