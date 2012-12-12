@@ -86,8 +86,10 @@ class Atom(object):
         # This will reference a connect point of a building unit
         # if it is a connecting atom
         self.connectivity = None
-        # index as listed in the SBU
+        # index as listed in the Structure
         self.index = 0
+        # index as listed in the Building Unit
+        self.internal_index = 0
 
     def __copy__(self):
         """
@@ -170,6 +172,7 @@ class BuildingUnit(object):
                 continue
             self.atoms.append(Atom(atom))
             self.atoms[-1].index = ind
+            self.atoms[-1].internal_index = ind
             self.atoms[-1].bu_index = self.index
             self.atoms[-1].bu_metal = self.metal
             ind += 1
@@ -1050,6 +1053,8 @@ class Generate(object):
         # select 1 metal and 2 organic linkers to mix
         # for the sampling.
         self.outdir = "output." + building_unit_database.extension + "/"
+        # store the database of functional groups in case of functionalization.
+        self.functional_groups = FunctionalGroupDatabase('functional_groups.lib')
         self.csv = CSV()
         self.csv.set_name(building_unit_database.extension)
         if not os.path.exists(self.outdir):
@@ -1061,7 +1066,6 @@ class Generate(object):
         for combo in combinations:
             building_units = [building_unit_database[i] for i in combo]
             self.exhaustive_sampling(building_units)
-
         self.csv.write_file()
 
     def set_combinations(self, num):
@@ -1287,28 +1291,120 @@ class Generate(object):
         seed.bonding()      
         return [seed]
 
-def Functionalize(object):
+class Functionalize(object):
     """Class of methods to append functional groups to a Structure."""
     
-    def __init__(self, structure):
+    def __init__(self, structure, fg_database, directives):
         self.max = 200  # Set upper limit of functionalizations per structure.
-        self.structure = structure
-    
+        self.structure = deepcopy(structure)
+        self.functional_groups = copy.deepcopy(fg_database)
+        
+    def get_base_units(self):
+        """Returns a list of base building units from the structure."""
+        dic = {}
+        for building_unit in self.structure.building_units:
+            # the dic keys are all the flags that make a
+            # building unit unique.
+            dic[(bulding_unit.index, building_unit.metal,
+                 building_unit.parent)] = deepcopy(building_unit)
+        # return the list of unique building_units
+        return dic.values()
+        
     def random_functionalization(self):
         """Randomly functionalizes a structure."""
+        # determine base building units from structure
+        base_building_units = self.get_base_units()
+        # select representative building unit
+        # randomly select hydrogens on each unit
+        # randomly choose two functional groups
+        # keep record so no repeats.. (this can be excluded with itertools)
         
     def symmetric_functionalization(self):
         """Symmetrically functionalizes a structure."""
         
-def FunctionalGroup(object):
+        
+class FunctionalGroupDatabase(list):
+    """Reads in a file and stores the Functional Groups in a list."""
+    
+    def __init__(self, filename):
+        self.readfile(filename)
+        # get extension of file name without leading directories.
+        self.extension = filename.split('/')[-1]
+        self.extension = self.extension.split(".lib")[0]
+            
+    def readfile(self, filename):
+        """
+        Populate the list with building units from the
+        input file.
+        """
+        # Multidict is in bookkeeping.py to account for duplicate
+        # names but mangles all the names up, so i will implement if
+        # needed, but otherwise we'll just use neat 'ol dict
+        #file = ConfigParser.SafeConfigParser(None, Multidict)
+        file = ConfigParser.SafeConfigParser()
+        file.read(filename)
+        for idx, functional_group in enumerate(file.sections()):
+            self.append(FunctionalGroup(
+                                    name=functional_group,
+                                    items=file.items(functional_group),
+                                    index=idx))
+
+class FunctionalGroup(object):
     """Defines a list of Atoms corresponding to a functional group."""
     
-    def __init__(self):
-        self.index = 0
-        self.name = ""
+    def __init__(self, name, items, index=0):
+        items = dict(items)
+        self.index = index
+        self.shname = name
+        self.name = items.pop('name')
         self.atoms = []
         self.bonds = []
+        # set up atoms and their connectivity
+        self.build_atoms(items.pop('coordinates'), 
+                          items.pop('table'))
+        # centre of mass
+#        self.calculate_COM()
+        self.normal = np.array([float(i) for i in items.pop('normal').split()])
+        self.connect_vector = np.array([float(i) for i in items.pop('orientation').split()])
+        self.bond_length = float(items.pop('carbon_bond'))
+        
+    def build_atoms(self, coordinates, table):
+        ind = 0
+        for atom in coordinates.splitlines():
+            atom = atom.strip()
+            if not atom:
+                continue
+            self.atoms.append(Atom(atom))
+            self.atoms[-1].index = ind
+            self.atoms[-1].bu_index = None
+            self.atoms[-1].bu_metal = False
+            self.atoms[-1].fnl_group_index = self.index
+            ind += 1
+        table = table.strip()
+        # self.connect_points must be populated before doing this.
+        for bond in table.splitlines():
+            bond = bond.strip().split()
+            # add the bonding information
+            # first two cases are for bonding to connecting points
+            if "c" in bond[0].lower():
+                atom_ind = int(bond[1])
+                self.atoms[atom_ind].connectivity = 1
 
+            elif "c" in bond[1].lower():
+                # subtract 1 since the input file starts at 1
+                atom_ind = int(bond[0])
+                self.atoms[atom_ind].connectivity = 1
+            else:
+                # add bonding to atoms
+                # add the index of the atom it is bonded with
+                self.atoms[int(bond[0])].bonds.append(
+                        int(bond[1]))
+                self.atoms[int(bond[1])].bonds.append(
+                        int(bond[0]))
+                self.bonds.append(Bond(
+                     self.atoms[int(bond[0])], 
+                     self.atoms[int(bond[1])], bond[2]))
+                
 def valid_bond(bond, newbond):
     """
     Determines if two connect_points are compatible

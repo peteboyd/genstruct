@@ -7,68 +7,68 @@
 
 [H]
 name = Hydrogen
-atoms =
+coordinates =
     H  H_  0.0  0.0  0.0
 orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.07
-connectivity:
+table:
     0   1C S
 
 [F]
 name = Fluoro
-atoms =
+coordinates =
     F  F_   0.0  0.0  0.0
 orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.41
-connectivity:
+table:
     0   1C S
 
 
 [Cl]
 name = Chloro
-atoms =
+coordinates =
     Cl  Cl  0.0  0.0  0.0
 orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.77
-connectivity:
+table:
     0   1C S
 
 
 [Br]
 name = Bromo
-atoms =
+coordinates =
     Br  Br  0.0  0.0  0.0
 orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 2.04
-connectivity:
+table:
     0   1C S
 
 
 [I]
 name = Iodo
-atoms =
+coordinates =
     I  I_  0.0  0.0  0.0
 orientation = 1.0 0.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 2.12
-connectivity:
+table:
     0   1C S
 
 
 [NH2]
 name = Amine
-atoms =
+coordinates =
     N  N_3   0.000  0.000  0.000
     H  H_    0.829  0.559  0.000
     H  H_   -0.829  0.559  0.000
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.37
-connectivity:
+table:
     0   1C S
     0   1  S
     0   2  S
@@ -76,7 +76,7 @@ connectivity:
 
 [Me]
 name = Methyl
-atoms =
+coordinates =
     C C_3   0.000000  0.000000  0.000000
     H H_    1.026719  0.000000 -0.363000
     H H_   -0.513360 -0.889165 -0.363000
@@ -84,7 +84,7 @@ atoms =
 orientation = 0.0 0.0 -1.0
 normal = 0.0 1.0 0.0
 carbon_bond = 1.68
-connectivity:
+table:
    0   1C  S
    0   1   S
    0   2   S
@@ -93,7 +93,7 @@ connectivity:
 
 [Et]
 name = Ethyl
-atoms =
+coordinates =
     C  C_3         0.000000     0.000000     0.000000
     C  C_3         1.413643     0.590829    -0.000000
     H  H_          1.975351     0.271607     0.883637
@@ -104,7 +104,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.60
-connectivity:
+table:
    0   1C  S
    0   1   S
    0   5   S
@@ -116,7 +116,7 @@ connectivity:
 
 [Pr]
 name = Propyl
-atoms =
+coordinates =
     C   C_3           0.000000     0.000000     0.000000
     C   C_3           1.390816     0.646790    -0.000000
     C   C_3           1.331728     2.174992     0.092586
@@ -130,7 +130,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.60
-connectivity:
+table:
    0   1C  S
    0   1   S
    0   8   S
@@ -145,14 +145,14 @@ connectivity:
 
 [NO2]
 name = Nitro
-atoms =
+coordinates =
     N  N_R   0.000  0.000  0.000
     O  N_R   1.111  0.573  0.000
     O  N_R  -1.111  0.573  0.000
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.51
-connectivity:
+table:
    0   1C  S
    0   1   A
    0   2   A
@@ -160,14 +160,14 @@ connectivity:
 
 [HCO]
 name = Aldehyde
-atoms =
+coordinates =
     C  C_2   0.000  0.000  0.000
     H  H_    0.950  0.400  0.000
     O  O_2  -1.043  0.842  0.000
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.64
-connectivity:
+table:
    0   1C  S
    0   1   S
    0   2   D
@@ -175,7 +175,7 @@ connectivity:
 
 [COOH]
 name = Carboxylate
-atoms =
+coordinates =
     C  C_2   0.000  0.000  0.000
     O  O_2   1.032  0.651  0.000
     O  O_R  -1.231  0.530  0.000
@@ -183,7 +183,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.55
-connectivity:
+table:
    0   1C  S
    0   1   D
    0   2   S
@@ -192,33 +192,33 @@ connectivity:
 
 [OH]
 name = Alcohol
-atoms =
+coordinates =
     O   O_3  0.000  0.000  0.000
     H   H_   0.916  0.253  0.000
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.38
-connectivity:
+table:
    0   1C  S
    0   1   S
 
 
 [CN]
 name = Nitrile
-atoms =
+coordinates =
     C  C_1  0.000  0.000  0.000
     N  N_1  0.000  1.290  0.000
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.69
-connectivity:
+table:
    0   1C  S
    0   1   T
 
 
 [Ph]
 name = Phenyl
-atoms =
+coordinates =
     C  C_R    0.000  0.000  0.000
     C  C_R    1.212  0.700  0.000
     C  C_R    1.212  2.100  0.000
@@ -233,7 +233,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.52
-connectivity:
+table:
    0   1C  S
    0   1   A
    0   5   A
@@ -250,7 +250,7 @@ connectivity:
 
 [OMe]
 name = Methoxy
-atoms =
+coordinates =
     O   O_3        0.000000     0.000000     0.000000
     C   C_3        1.247339     0.648100    -0.000091
     H   H_         1.836142     0.418844    -0.895960
@@ -259,7 +259,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.42
-connectivity:
+table:
    0   1C  S
    0   1   S
    1   2   S
@@ -269,7 +269,7 @@ connectivity:
 
 [OEt]
 name = Ethoxy
-atoms =
+coordinates =
     O   O_3        0.000000     0.000000     0.000000
     C   C_3        1.266487     0.649916    -0.000000
     H   H_         1.847772     0.351833    -0.894010
@@ -281,7 +281,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.42
-connectivity:
+table:
    0   1C  S
    0   1   S
    1   2   S
@@ -294,7 +294,7 @@ connectivity:
 
 [OPr]
 name = PropylEther
-atoms =
+coordinates =
     O   O_3        0.000000     0.000000     0.000000
     C   C_3        1.263162     0.642346     0.000000
     H   H_         1.008654     1.627164    -0.428539
@@ -309,7 +309,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.42
-connectivity:
+table:
    0   1C  S
    0   1   S
    1   2   S
@@ -325,7 +325,7 @@ connectivity:
 
 [NHMe]
 name = MethylAmine
-atoms =
+coordinates =
     N   N_2        0.000000     0.000000     0.000000
     H   H_        -0.926647     0.535000    -0.000000
     C   C_3        1.316359     0.760000    -0.000000
@@ -335,7 +335,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.52
-connectivity:
+table:
    0   1C  S
    0   1   S
    0   2   S
@@ -346,7 +346,7 @@ connectivity:
 
 [SO3H]
 name = SulphonicAcid
-atoms =
+coordinates =
     S   S_6+2      0.000000     0.000000     0.000000
     O   O_2       -0.501425     0.524647    -1.236301
     O   O_2       -0.457983     0.537978     1.256442
@@ -355,7 +355,7 @@ atoms =
 orientation = 0.0 1.0 0.0
 normal = 0.0 0.0 1.0
 carbon_bond = 1.77
-connectivity:
+table:
    0   1C  S
    0   1   D
    0   2   D
