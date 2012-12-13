@@ -26,6 +26,7 @@ from random import random, uniform, randrange, choice
 from datetime import date
 from logging import warning, debug, error, info, critical
 from scipy.spatial import distance
+from itertools import combinations
 
 class Bond(object):
     """ Bonds between atoms """
@@ -1317,7 +1318,7 @@ class Functionalize(object):
         return [atom.internal_index for atom in
                 building_unit.atoms if atom.element == "H"]
         
-    def generate(self, iterlist):
+    def select(self, iterlist):
         """Returns a random selection for hydrogen atom
         atom substitution with a functional group.
         
@@ -1334,7 +1335,7 @@ class Functionalize(object):
         the length of which is determined by maxgroups.
         
         """
-        rrange = len(self.functional_groups)
+        rrange = range(len(self.functional_groups))
         pool = tuple(combinations(rrange, maxgroups))
         return [deepcopy(self.functional_groups[i]) for i in choice(pool)]
         
@@ -1364,18 +1365,25 @@ class Functionalize(object):
             for building_unit in base_building_units:
                 id = (building_unit.index, building_unit.metal,
                       building_unit.parent)
-                sites[id] = generate(h_atoms[id])
+                if h_atoms[id]:
+                    sites[id] = self.select(h_atoms[id])
+                else:
+                    sites[id] = []
             # randomly choose functional groups
             assigned_fnlgrps = self.choose_fnl_group(maxgroups)
             # assign fnl groups to each hydrogen
             for key, value in sites.items():
-                sites[key] = {value: choice(assigned_fnlgrps)}
-            
+                # reset the site to a dictionary
+                sites[key] = {}
+                # descend into each hydrogen atom and assign a
+                # random choice of functional group.
+                for site in value:
+                    sites[key][site] = choice(assigned_fnlgrps)
             
             # keep record so no repeats.
             
             # (building_unit index (hatom, fnlindex), (hatom, fnlindex))
-            
+            done = True  
             
     
     def symmetric_functionalization(self):
