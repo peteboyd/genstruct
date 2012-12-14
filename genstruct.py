@@ -1372,19 +1372,46 @@ class Functionalize(object):
             # randomly choose functional groups
             assigned_fnlgrps = self.choose_fnl_group(maxgroups)
             # assign fnl groups to each hydrogen
-            for key, value in sites.items():
-                # reset the site to a dictionary
-                sites[key] = {}
-                # descend into each hydrogen atom and assign a
-                # random choice of functional group.
-                for site in value:
-                    sites[key][site] = choice(assigned_fnlgrps)
-            
+            new_func = False
+            while not new_func:
+                record = []
+                for key, value in sites.items():
+                    # reset the site to a dictionary
+                    # site[(building_unit)] = {hydrogen:functional_group}
+                    sites[key] = {}
+                    # descend into each hydrogen atom and assign a
+                    # random choice of functional group.
+                    h_record = []
+                    for site in value:
+                        group = choice(assigned_fnlgrps)
+                        sites[key][site] = group
+                        rec = tuple([site, group.index])
+                        h_record.append(rec)
+                    h_record.sort()
+                    rec = tuple([key, tuple(h_record)])
+                    record.append(rec)
+                record.sort()
+                # fastest check if the functional has been tried: dictionary
+                # lookup?
+                try:
+                    functional_hist[tuple(record)]
+                except KeyError:
+                    # if the key is not in functional_hist, then exit this loop
+                    new_func = True
             # keep record so no repeats.
+            functional_hist[tuple(record)] = 1
             
-            # (building_unit index (hatom, fnlindex), (hatom, fnlindex))
-            done = True  
+            # iterate through each building unit in the structure, and
+            # append functional groups
+            for building_unit in self.structure.building_units:
+                site_id = (building_unit.index, building_unit.metal,
+                      building_unit.parent)
+                replace_dic = sites[site_id]
+                print replace_dic
+            # update connectivities
             
+            # write cif file
+            done = True 
     
     def symmetric_functionalization(self):
         """Symmetrically functionalizes a structure."""
