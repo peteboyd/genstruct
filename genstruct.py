@@ -293,7 +293,7 @@ class BuildingUnit(object):
             # apply rotation matrix to vectors
             cp.para[:3] = np.dot(R[:3,:3], cp.para[:3])
             cp.perp[:3] = np.dot(R[:3,:3], cp.perp[:3])
-
+            
     def align_to(self, self_point, connect_point):
         """
         aligns two building units along their perp vectors
@@ -362,6 +362,14 @@ class BuildingUnit(object):
             line += " Symmetry flag: %s\n"%str(con.symmetry)
         return line
 
+    def find_bonds(self, atom):
+        """Returns a list of Bonds if the atom belongs to them."""
+        blist = []
+        for bond in self.bonds:
+            if bond.frm == atom or bond.to == atom:
+                blist.append(bond)
+        return blist
+    
     def __copy__(self):
         dup = object.__new__(BuildingUnit)
         dup.__dict__ = self.__dict__.copy()
@@ -743,7 +751,8 @@ class Structure(object):
         for bu in self.building_units:
             for atm in bu.atoms:
                 atm.scaled_coords = self.cell.get_scaled(atm.coordinates)
-                atm.scaled_coords = atm.scaled_coords - np.floor(atm.scaled_coords)
+                # note I do not shift to within periodic boundaries yet.
+                # this should be done later.
         return
 
     def finalize(self, base_building_units, outdir="", csvfile=None):
@@ -759,6 +768,8 @@ class Structure(object):
                 for atom in bu.atoms:
                     atom.scaled_coords = 1 - atom.scaled_coords
         self.cell.get_inverse()
+        self.get_cartesians()
+        self.recalc_bond_vectors()
         met_lines = ""
         org_lines = ""
         metal_ind, organic_ind = [], []
@@ -794,7 +805,25 @@ class Structure(object):
                     h_m_symmetry_name = hm_name,
                     symmetry_number = sym_number,
                     build_directive = self.directives)     
+
+    def recalc_bond_vectors(self):
+        """Re-calculates all bond vectors after all rotations are completed."""
+        for building_unit in self.building_units:
+            for bond in building_unit.bonds:
+                # don't care about atom --> connect point,
+                # only atom --> atom bonds.
+                if isinstance(bond.frm, Atom) and isinstance(bond.to, Atom):
+                    bond.vector = bond.frm.coordinates[:3] - bond.to.coordinates[:3]
+                    
+    def get_cartesians(self):
+        """Convert fractional coordinates to cartesians.  This is necessary
+        when the cell vectors are adjusted.
         
+        """
+        for building_unit in self.building_units:
+            for atom in building_unit.atoms:
+                atom.coordinates = np.dot(atom.scaled_coords, self.cell.lattice)
+                
     def __copy__(self):
         """
         Overrides the method of deepcopy, which fails with these
@@ -1398,7 +1427,7 @@ class Functionalize(object):
                 except KeyError:
                     # if the key is not in functional_hist, then exit this loop
                     new_func = True
-            # keep record so no repeats.
+            # keep record to prevent repeats.
             functional_hist[tuple(record)] = 1
             
             # iterate through each building unit in the structure, and
@@ -1407,7 +1436,22 @@ class Functionalize(object):
                 site_id = (building_unit.index, building_unit.metal,
                       building_unit.parent)
                 replace_dic = sites[site_id]
-                print replace_dic
+                for hydrogen in replace_dic.keys():
+                    fnl_grp = deepcopy(replace_dic[hydrogen])
+                    H_atom = building_unit.atoms[hydrogen]
+                    # find the associated bond
+                    bond = building_unit.find_bonds(H_atom)
+                    if len(bond) != 1:
+                        raise Error("Hydrogen reports as having no bonds..")
+                    bond = bond[0]
+                    # nasty one-liner to assign the Joined atom
+                    J_atom = bond.frm if bond.to == H_atom else bond.to
+                    axis = bond.vector
+                    # rotate and translate
+                    fnl_grp.orient(bond.vector, J_atom.coordinates)
+                    # check for overlap
+                    
+                    
             # update connectivities
             
             # write cif file
@@ -1495,6 +1539,31 @@ class FunctionalGroup(object):
                      self.atoms[int(bond[0])], 
                      self.atoms[int(bond[1])], bond[2]))
                 
+    def orient(self, vector, point):
+        """Shift the functional groups' atoms and vectors to align with
+        the vector.
+        
+        NOTE: this is not tested, needs to be tested.
+        
+        """
+        vector = normalize(vector)
+        angle = calc_angle(self.connect_vector, vector)
+        axis = np.cross(self.connect_vector, vector)
+        pt = [i.index for i in self.atoms if i.connectivity]
+        R = rotation_matrix(axis, angle, point=self.atoms[pt].coordinates)
+        # pt is the functional group atom which bonds to the structure
+        pt = pt[0]
+        # NONE of this rotation stuff has been tested yet.
+        for atom in self.atoms:
+            atom.coordinates = np.dot(R[:3,:3], atom.coordinates)
+        self.normal = np.dot(R[:3,:3], self.normal)
+        self.connect_vector = np.dot(R[:3,:3], self.connect_vector)
+        
+        trans_v = (self.atoms[pt].coordinates[:3] - point[:3] +
+                    self.bond_length * vector)
+        for atom in self.atoms:
+            atom.coordinates = atom.coordinates + trans_v
+        
 def valid_bond(bond, newbond):
     """
     Determines if two connect_points are compatible
