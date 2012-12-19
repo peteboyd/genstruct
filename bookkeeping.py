@@ -46,15 +46,11 @@ class Multidict(dict):
 
 class Log(object):
 
-    def __init__(self, file=None):
-        if file is None:
-            self.file = "genstruct.out"
-        else:
-            self.file = file
+    def __init__(self, file="genstruct.out"):
+        self.file = file
         self.quiet = False 
         self.verbose = True
         self.default = False
-
         self._init_logging()
         # set up writing to file and terminal
 

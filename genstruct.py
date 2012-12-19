@@ -481,7 +481,7 @@ class Structure(object):
         # Store global bonds here
         self.bonds = []
         self.sym_id = []
-        self.debug = False  # have this parsed from command line
+        self.debug = True   # have this parsed from command line
         self.directives = [] # keep track of bonding directives
 
     def debug_xyz(self):
@@ -1211,8 +1211,8 @@ class Generate(object):
                                 new_struct.finalize(base_building_units,
                                                     outdir = self.outdir,
                                                     csvfile = self.csv)
-                                fnl = Functionalize(new_struct, self.functional_groups)
-                                fnl.random_functionalization()
+                                #fnl = Functionalize(new_struct, self.functional_groups)
+                                #fnl.random_functionalization()
                                 # NOTE the next two lines should be in a separate
                                 # function which is or is not called based on
                                 # a DEBUG flag.
@@ -1229,18 +1229,22 @@ class Generate(object):
                             stopwatch.timestamp()
                             info("Genstruct went too long, "+
                             "%f seconds, returning..."%stopwatch.timer)
+                            file=open("debug.xyz", "w")
                             for addstr in add_list:
-                                write_debug_xyz(addstr)
-                            return
+                                file.writelines(addstr.xyz_lines)
+                            file.close()
             if not add_list:
                 stopwatch.timestamp()
                 info("After %f seconds, "%stopwatch.timer +
                 "no possible new combinations, returning...")
-                for oldstr in structures:
-                    write_debug_xyz(oldstr)
-                return
+                for addstr in structures:
+                    file.writelines(addstr.xyz_lines)
+                file.close()
+
+            file=open("debug.xyz", "w")
             for addstr in add_list:
-                write_debug_xyz(addstr)
+                file.writelines(addstr.xyz_lines)
+            file.close()
             structures = add_list
         return
 
@@ -1599,15 +1603,6 @@ def valid_bond(bond, newbond):
             return False
     # otherwise return True
     return True
-
-def write_debug_xyz(structure, count=[]):
-    if len(count) == 0:
-        file=open("debug.xyz", "w")
-    else:
-        file=open("debug.xyz", "a")
-    count.append(1)
-    file.writelines(structure.xyz_lines)
-    file.close()
 
 def main():
     if len(sys.argv) > 1:
