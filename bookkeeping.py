@@ -255,7 +255,7 @@ class CIF(object):
 
         lines += "_atom_site_label\n"
         lines += "_atom_site_type_symbol\n"
-        lines += "_atom_type_description\n"
+        lines += "_atom_site_description\n"
         lines += "_atom_site_fract_x\n"
         lines += "_atom_site_fract_y\n"
         lines += "_atom_site_fract_z\n"
