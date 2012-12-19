@@ -19,7 +19,7 @@ import functional
 from config import Options
 from operations import *
 import numpy as np
-from numpy import array
+from numpy import array, pi
 from elements import WEIGHT
 from bookkeeping import * 
 from random import random, uniform, randrange, choice
@@ -141,7 +141,8 @@ class BuildingUnit(object):
             self.parent = items.pop('parent')
         else:
             self.parent = None
-
+            
+        self.functional_groups = [] # list of functional groups.
         # Topology info:
         # points of connection for other building units
         self.build_connect_points(items.pop('connectivity'))
@@ -347,7 +348,7 @@ class BuildingUnit(object):
                        axis=0, 
                        weights=array([atom.mass for atom in self.atoms]))
         return
-
+        
     def __str__(self):
         line = "Building Unit from Genstruct: %s\n"%self.name
         for atom in self.atoms:
@@ -370,6 +371,28 @@ class BuildingUnit(object):
                 blist.append(bond)
         return blist
     
+    def functionalize(self, functional_group, hydrogen):
+        """Append the functional group to the building unit atoms."""
+        append_point = hydrogen
+        self.atoms = (self.atoms[:hydrogen-1] + functional_group.atoms
+                      + self.atoms[hydrogen:])
+        # remove bond to hydrogen
+        remove = []
+        for idx, bond in enumerate(self.bonds):
+            if bond.to.index == hydrogen or bond.frm.index == hydrogen:
+                remove.append(idx)
+        for i in remove:
+            self.bonds.pop(i)
+        for atom in functional_group.atoms:
+            if atom.connectivity:
+                fnl_bonding_atom = atom
+                
+        # add bond to self.bonds
+        self.bonds.append(Bond(functional_group.MOF_atom,
+                               fnl_bonding_atom,
+                               "S",
+                               distance=functional_group.bond_length))
+        
     def __copy__(self):
         dup = object.__new__(BuildingUnit)
         dup.__dict__ = self.__dict__.copy()
@@ -377,7 +400,6 @@ class BuildingUnit(object):
         dup.connect_points = []
         dup.bonds = []
         return dup
-
 
 class ConnectPoint(object):
     """
@@ -483,6 +505,7 @@ class Structure(object):
         self.sym_id = []
         self.debug = True   # have this parsed from command line
         self.directives = [] # keep track of bonding directives
+        self.connecting_bonds = []  # list of Bonds containing connecting atoms.
 
     def debug_xyz(self):
         if self.debug:
@@ -657,7 +680,12 @@ class Structure(object):
                 else:
                     at = np.dot(fcoord+rdist, self.cell.lattice[:self.cell.index])
                 mof_coords[atcount:max] = at
-                atcount += len(bu.atoms) 
+                atcount += len(bu.atoms)
+            # INCLUDE ROUTINE TO APPEND SHIFTED FUNCTIONAL GROUPS TO mof_coords
+            for bu in self.building_units:
+                if bu.functional_groups:
+                    pass
+                
         else:
             elements += [axx.element for bux in self.building_units for
                          axx in bux.atoms]
@@ -724,6 +752,9 @@ class Structure(object):
                     # append to bonds
                     # bond type "single" for now...
                     self.bonds.append((atm.index, atm2.index, "S", dist))
+                    # special connecting bonds require reference to
+                    # atom instances.
+                    self.connecting_bonds = Bond(atm, atm2, "S", dist)
                     #TODO(pboyd): add check for if no Bond is associated
                     # with the connect_point, in which case raise a 
                     # warning. (something wrong with the input)
@@ -1372,6 +1403,29 @@ class Functionalize(object):
         pool = tuple(combinations(rrange, maxgroups))
         return [deepcopy(self.functional_groups[i]) for i in choice(pool)]
         
+    def overlap(self, functional_group, bonded_atom, structure):
+        """Determine if a particular functional group will overlap with the
+        structure.  Returns a list of the functional group atoms which overlap
+        with the structure.
+        
+        """
+        sf = 0.4
+        atom_list = []
+        # periodic shift the atoms to the atoms in the functional group
+        for atom in functional_group.atoms:
+            mof_elements, mof_coords = structure.min_img_shift(
+                                        atom=atom.coordinates[:3])
+            # determine distances
+            distances = distance.cdist([atom.coordinates[:3]], mof_coords)
+            excl = bonded_atom.index
+            for idx, dist in enumerate(distances[0]):
+                if idx != excl:
+                    max_dist = (Radii[atom.element] +
+                                Radii[mof_elements[idx]]) * sf
+                    if dist < max_dist:
+                        atom_list.append(atom.index)
+        return atom_list
+        
     def random_functionalization(self, maxgroups=2):
         """Randomly functionalizes a structure. Max groups dictates
         the maximum number of functional groups included per Structure.
@@ -1393,6 +1447,8 @@ class Functionalize(object):
             h_atoms[id] = hydrogen_sites
         done = False
         while not done:
+            # copy of structure to functionalize
+            structure = deepcopy(self.structure)
             sites = {}
             # randomly select hydrogens on each unit
             for building_unit in base_building_units:
@@ -1436,7 +1492,7 @@ class Functionalize(object):
             
             # iterate through each building unit in the structure, and
             # append functional groups
-            for building_unit in self.structure.building_units:
+            for building_unit in structure.building_units:
                 site_id = (building_unit.index, building_unit.metal,
                       building_unit.parent)
                 replace_dic = sites[site_id]
@@ -1454,10 +1510,31 @@ class Functionalize(object):
                     # rotate and translate
                     fnl_grp.orient(bond.vector, J_atom.coordinates)
                     # check for overlap
+                    overlap_atoms = self.overlap(fnl_grp, J_atom, structure)
+                    if overlap_atoms:
+                        # check if one of the overlap atoms is the
+                        # connecting atom, in this case we just
+                        # scrap the structure because no amount
+                        # of rotation will help.
+                        for overlap_atom in overlap_atoms:
+                            if fnl_grp.atoms[overlap_atom].connectivity:
+                                # need to break and try a different randomization.
+                                # no amount of rotation will help here.
+                                pass
+                        # generate angles of 360 degrees split into 10 intervals.
+                        rot_angle = 2 * pi / 10
+                        tot_angle = 0.
+                        while overlap_atoms and tot_angle < (2*pi):
+                          fnl_grp.rotate(rot_angle)
+                          tot_angle += rot_angle
+                          overlap_atoms = self.overlap(fnl_grp, J_atom)
                     
-                    
+                    # append the functional group to the Structure.
+                    fnl_grp.MOF_atom = J_atom
+                    building_unit.functionalize(fnl_grp)
             # update connectivities
-            
+            for building_unit in structure.building_units:
+                pass
             # write cif file
             done = True 
     
@@ -1503,8 +1580,11 @@ class FunctionalGroup(object):
         # centre of mass
 #        self.calculate_COM()
         self.normal = np.array([float(i) for i in items.pop('normal').split()])
-        self.connect_vector = np.array([float(i) for i in items.pop('orientation').split()])
+        self.connect_vector = np.ones(4)
+        self.connect_vector[:3] = np.array([float(i) for i in
+                                            items.pop('orientation').split()])
         self.bond_length = float(items.pop('carbon_bond'))
+        self.MOF_bond = None  # this will be the MOFs carbon atom it bonds to
         
     def build_atoms(self, coordinates, table):
         ind = 0
@@ -1550,24 +1630,38 @@ class FunctionalGroup(object):
         NOTE: this is not tested, needs to be tested.
         
         """
-        vector = normalize(vector)
-        angle = calc_angle(self.connect_vector, vector)
-        axis = np.cross(self.connect_vector, vector)
+        vector = unit_vector(vector)
+        angle = calc_angle(self.connect_vector[:3], vector[:3])
+        axis = np.cross(self.connect_vector[:3], vector[:3])
         pt = [i.index for i in self.atoms if i.connectivity]
-        R = rotation_matrix(axis, angle, point=self.atoms[pt].coordinates)
+
         # pt is the functional group atom which bonds to the structure
         pt = pt[0]
+        R = rotation_matrix(axis, angle, point=self.atoms[pt].coordinates[:3])
         # NONE of this rotation stuff has been tested yet.
         for atom in self.atoms:
-            atom.coordinates = np.dot(R[:3,:3], atom.coordinates)
+            atom.coordinates = np.dot(R, atom.coordinates)
         self.normal = np.dot(R[:3,:3], self.normal)
-        self.connect_vector = np.dot(R[:3,:3], self.connect_vector)
-        
+        self.connect_vector = np.dot(R[:3,:3], self.connect_vector[:3])
         trans_v = (self.atoms[pt].coordinates[:3] - point[:3] +
-                    self.bond_length * vector)
+                    self.bond_length * vector[:3])
         for atom in self.atoms:
-            atom.coordinates = atom.coordinates + trans_v
+            atom.coordinates[:3] = atom.coordinates[:3] + trans_v
+            
+    def rotate(self, angle):
+        """Rotate a functional group about it's axis with the angle supplied."""
+        axis = self.connect_vector
+        # point about which to rotate: the connecting atom
+        pt = [i.index for i in self.atoms if i.connectivity]
+        pt = pt[0]               
+        R = rotation_matrix(axis, angle, point=self.atoms[pt].coordinates)
+        # rotate the atom coordinates
+        for atom in self.atoms:
+            atom.coordinates = np.dot(R, atom.coordinates)        
+        # rotate the normal, though I don't think this matters
+        self.normal[:3] = np.dot(R[:3,:3], self.normal[:3])
         
+
 def valid_bond(bond, newbond):
     """
     Determines if two connect_points are compatible
