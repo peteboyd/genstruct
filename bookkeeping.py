@@ -335,6 +335,7 @@ class CIF(object):
         cellparams['gamma'] = calc_angle(cell[0], cell[1])*RAD2DEG
         return cellparams
 
+
 class Symmetry(object):
     """
     Symmetry class to calculate the symmetry elements of a given MOF
