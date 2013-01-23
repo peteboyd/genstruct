@@ -640,10 +640,16 @@ class Structure(object):
         """
         # scale the van der waals radii by sf
         sf = 0.4
+        # NEED TO DEBUG here!
         atomlist = [atom for bu in self.building_units for atom in bu.atoms]
         for atom in bu.atoms:
             elem, coords = self.min_img_shift(atom=atom.coordinates)
             # distance checks
+            coordlist = [list(atom.coordinates[:3])]
+            for coord in coords.tolist():
+                coordlist.append(coord)
+            atmlist = [atom.element] + elem
+            xyz_file(atoms=atmlist, coordinates=coordlist)
             distmat = distance.cdist([atom.coordinates[:3]], coords)
             # check for atom == atom, bonded
             excl = [atom.index] + [idx for idx in atom.bonds]
@@ -1146,6 +1152,25 @@ class Generate(object):
         """
         return
     
+    def generate_valid_bonding(self, bu_db):
+        """Evaluate every bond in the building unit database,
+        determine which bonds are valid and which are not.
+
+        """
+        connect_points = [bond for bu in bu_db for
+                          bond in bu.connect_points]
+        bond_pairs = [i for i in itertools.combinations(connect_points, 2)]
+        keep = []
+        for pair in bond_pairs:
+            if valid_bond(pair[0], pair[1]):
+                keep.append(pair)
+
+        # TODO: keep a list within each bond of a unique bond identifier
+        # to all possible bonds.  Then the check will be easy
+        for pair in keep:
+            print pair[0]
+            print pair[1]
+
     def exhaustive_sampling(self, bu_db):
         """
         Try every combination of bonds which are allowed in a
@@ -1171,7 +1196,7 @@ class Generate(object):
         # first scan the database of building units to make sure
         # that all the restricted bonding parameters can be 
         # partnered.
-        
+        #self.generate_valid_bonding(base_building_units)
         # random seed 
         structures = self.random_insert(base_building_units)
         done = False
@@ -1264,6 +1289,8 @@ class Generate(object):
                             for addstr in add_list:
                                 file.writelines(addstr.xyz_lines)
                             file.close()
+                            return
+            file=open("debug.xyz", "w")
             if not add_list:
                 stopwatch.timestamp()
                 info("After %f seconds, "%stopwatch.timer +
@@ -1271,8 +1298,8 @@ class Generate(object):
                 for addstr in structures:
                     file.writelines(addstr.xyz_lines)
                 file.close()
+                return
 
-            file=open("debug.xyz", "w")
             for addstr in add_list:
                 file.writelines(addstr.xyz_lines)
             file.close()
@@ -1306,11 +1333,11 @@ class Generate(object):
         symmetry_label = [(bu.internal_index, cp.symmetry), 
                           (add_bu.internal_index, add_cp.symmetry)]
         # check for if the bond is 'special'
-        if cp.special is not None:
+        if (cp.special is not None) and (cp.special == add_cp.constraint):
             symmetry_label = [(bu.internal_index, "special%i"%(cp.special)),
                               (add_bu.internal_index,
                               "constraint%i"%(add_cp.constraint))]
-        elif cp.constraint is not None:
+        elif (cp.constraint is not None) and (cp.constraint == add_cp.special):
             symmetry_label = [(bu.internal_index, "constraint%i"%(cp.constraint)),
                               (add_bu.internal_index,
                               "special%i"%(add_cp.special))]
@@ -1674,29 +1701,34 @@ def valid_bond(bond, newbond):
     # check if the bond is already bonded
     if bond.bonded or newbond.bonded:
         return False
-    
     # check if one of the bonds is special.  Then make sure the other bond
     # is constrained to that special bond.
     if bond.special is not None:
-        if newbond.constraint != bond.special:
-            return False
+        if newbond.constraint == bond.special:
+            return True
     if bond.constraint is not None:
-        if newbond.special != bond.constraint:
-            return False
-    if newbond.special is not None:
-        if bond.constraint != newbond.special:
-            return False
-    if newbond.constraint is not None:
-        if bond.special != newbond.constraint:
-            return False
-    
+        if newbond.special == bond.constraint:
+            return True
     # check if the bond is metal-metal
-    if (not newbond.special)and(not newbond.constraint)and(
-        not bond.special)and(not bond.constraint):
-        if bond.metal == newbond.metal:
-            return False
-    # otherwise return True
-    return True
+    if (newbond.special is None)and(newbond.constraint is None)and(
+        bond.special is None)and(bond.constraint is None):
+        if bond.metal != newbond.metal:
+            return True
+    # otherwise return False
+    return False
+
+def xyz_file(atoms=None, coordinates=None, vectors=None):
+    """Writes an xyz file with vectors if specified"""
+    natoms = len(atoms)
+    atoms[0] = "Rn"
+    xyzstream = open("xyz.xyz", "a")
+    atmline = "%-5s%12.5f%12.5f%12.5f\n"
+    vectorline = "%-5s%12.5f%12.5f%12.5f atom_vector %12.5f%12.5f%12.5f"
+    xyzstream.writelines("%i\n%s\n"%(natoms, "xyz"))
+    for atom, (x, y, z) in zip(atoms, coordinates):
+        line = atmline%(atom,x,y,z)
+        xyzstream.writelines(line)
+    xyzstream.close()
 
 def main():
     if len(sys.argv) > 1:
@@ -1706,7 +1738,7 @@ def main():
     data = Database(file)
     base = file.split('/')[-1]
     base = base.split(".dat")[0]
-    Log(file=base)
+    Log(file=base + ".out")
     Generate(data)
 
 if __name__ == '__main__':
