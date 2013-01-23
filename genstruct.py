@@ -41,14 +41,6 @@ class Bond(object):
             self.distance = distance
         else:
             self.distance = np.linalg.norm(self.vector)
-    def __copy__(self):
-        dup = object.__new__(Bond)
-        dup.__dict__ = self.__dict__.copy()
-        dup.frm = None
-        dup.to = None
-
-        return dup
-        
 
 class Atom(object):
     """
@@ -91,17 +83,6 @@ class Atom(object):
         self.index = 0
         # index as listed in the Building Unit
         self.internal_index = 0
-
-    def __copy__(self):
-        """
-        Copy relevant, standard object data from the existing class,
-        i.e. no referencing to other classes will be copied.  This
-        means that self.bonds will not contain Atom() classes.
-        """
-        dup = object.__new__(Atom)
-        dup.__dict__ = self.__dict__.copy()
-        dup.bonds = []
-        return dup
 
     def __str__(self):
         
@@ -392,14 +373,6 @@ class BuildingUnit(object):
                                fnl_bonding_atom,
                                "S",
                                distance=functional_group.bond_length))
-        
-    def __copy__(self):
-        dup = object.__new__(BuildingUnit)
-        dup.__dict__ = self.__dict__.copy()
-        dup.atoms = []
-        dup.connect_points = []
-        dup.bonds = []
-        return dup
 
 class ConnectPoint(object):
     """
@@ -479,17 +452,6 @@ class ConnectPoint(object):
         string += "Symmetry: %2i, Special: %2i, Constraint: %2i"%(
                 self.symmetry, spec, const)
         return string
-
-    def __copy__(self):
-        """
-        Designed to copy relevant information only, no reference to 
-        other classes, such as the information contained in self.atoms
-        """
-        dup = object.__new__(ConnectPoint)
-        dup.__dict__ = self.__dict__.copy()
-        dup.atoms = []
-        return dup
-
 
 class Structure(object):
     """
@@ -861,84 +823,6 @@ class Structure(object):
             for atom in building_unit.atoms:
                 atom.coordinates = np.dot(atom.scaled_coords, self.cell.lattice)
                 
-    def __copy__(self):
-        """
-        Overrides the method of deepcopy, which fails with these
-        structures if beyond a certain building unit count.
-        Classes which need proper referencing:
- 
-        self.building_units --> BuildingUnit()
-            bu.connect_points --> ConnectPoint()
-                cp.atoms --> Atom()
-            bu.atoms --> Atom()
-                atom.bonds --> Atom()
-            bu.bonds --> Bond()
-                bond.frm --> Atom(), ConnectPoint()
-                bond.to --> Atom(), ConnectPoint()
-        self.bonds --> Bond()
-            bond.frm --> Atom()
-            bond.to --> Atom()
-        self.cell --> Cell()
-        """
-        # Go through each class Structure references and make sure
-        # the connections remain intact.
-        dup = object.__new__(Structure)
-        dup.__dict__ = self.__dict__.copy()
-        dup.building_units = []
-        dup.cell = deepcopy(self.cell)
-        # populate class lists
-        # Atom()s can be made to a 1d list because they have 
-        # a unique index which can tie them to any building
-        # unit
-        cats = [copy(atm) for bu in self.building_units for atm
-                in bu.atoms]
-
-        for bu in self.building_units:
-            copybu = copy(bu)
-            ccps = [copy(cp) for cp in bu.connect_points]
-            for atm in bu.atoms:
-                cat = [i for i in cats if atm.index == i.index]
-                if len(cat) == 0 or len(cat) > 1:
-                    error("problem copying atoms")
-                cat = cat[0]
-                cat.bonds = atm.bonds[:]
-                copybu.atoms.append(cat)
-
-            for cp in bu.connect_points:
-                ccp = [i for i in ccps if cp.index == i.index]
-                if len(ccp) == 0 or len(ccp) > 1:
-                    error("problem copying connect points")
-                ccp = ccp[0]
-                atoms = [copyatom for cpatm in cp.atoms for 
-                         copyatom in cats if cpatm.index == 
-                         copyatom.index]
-                ccp.atoms = atoms
-                copybu.connect_points.append(ccp)
-
-            for bond in bu.bonds:
-                cpbond = copy(bond)
-                if isinstance(bond.to, ConnectPoint):
-                    to = [cp for cp in ccps if cp.index == bond.to.index]
-                    to = to[0]
-                elif isinstance(bond.to, Atom):
-                    to = [axx for axx in cats if axx.index 
-                                            == bond.to.index]
-                    to = to[0]
-                if isinstance(bond.frm, ConnectPoint):
-                    frm = [cp for cp in ccps if cp.index
-                                       == bond.frm.index]
-                    frm = frm[0]
-                elif isinstance(bond.frm, Atom):
-                    frm = [axx for axx in cats if axx.index
-                                          == bond.frm.index]
-                    frm = frm[0]
-                cpbond.to = to
-                cpbond.frm = frm
-                copybu.bonds.append(cpbond)
-
-            dup.building_units.append(copybu)
-
-        return dup
 
 class Cell(object):
     """
@@ -1063,11 +947,6 @@ class Cell(object):
         self.lattice = np.dot(self.lattice, RXY[:3,:3])
         return
 
-        
-    def __copy__(self):
-        dup = object.__new__(Cell)
-        dup.__dict__ = self.__dict__.copy()
-        return dup
 
 class Database(list):
     """
@@ -1122,18 +1001,26 @@ class Generate(object):
         self.outdir = "output." + building_unit_database.extension + "/"
         # store the database of functional groups in case of functionalization.
         self.functional_groups = FunctionalGroupDatabase('functional_groups.lib')
+        # include check to see if CSV is requested
         self.csv = CSV()
         self.csv.set_name(building_unit_database.extension)
+        # place under write cif routine
         if not os.path.exists(self.outdir):
             os.makedirs(self.outdir)
 
         combinations = self.set_combinations(num)
         # filter out multiple metal combo's
         combinations = self.filter(combinations)
+        time = Time()
+        time.timestamp()
+        info("Genstruct will try %i combinations"%(len(combinations)))
         for combo in combinations:
             building_units = [building_unit_database[i] for i in combo]
+            info("Trying combo, %s, %s, %s"%tuple([i.name for i in building_units]))
             self.exhaustive_sampling(building_units)
         self.csv.write_file()
+        time.timestamp()
+        info("Genstruct finished! timing reports %f seconds."%(time.timer))
 
     def set_combinations(self, num):
         """ Generates all combinations of a database with length n"""
@@ -1151,25 +1038,6 @@ class Generate(object):
         initial insert.
         """
         return
-    
-    def generate_valid_bonding(self, bu_db):
-        """Evaluate every bond in the building unit database,
-        determine which bonds are valid and which are not.
-
-        """
-        connect_points = [bond for bu in bu_db for
-                          bond in bu.connect_points]
-        bond_pairs = [i for i in itertools.combinations(connect_points, 2)]
-        keep = []
-        for pair in bond_pairs:
-            if valid_bond(pair[0], pair[1]):
-                keep.append(pair)
-
-        # TODO: keep a list within each bond of a unique bond identifier
-        # to all possible bonds.  Then the check will be easy
-        for pair in keep:
-            print pair[0]
-            print pair[1]
 
     def exhaustive_sampling(self, bu_db):
         """
@@ -1193,10 +1061,6 @@ class Generate(object):
             bu.internal_index = id
             for cp in bu.connect_points:
                 cp.bu_order = id
-        # first scan the database of building units to make sure
-        # that all the restricted bonding parameters can be 
-        # partnered.
-        #self.generate_valid_bonding(base_building_units)
         # random seed 
         structures = self.random_insert(base_building_units)
         done = False
