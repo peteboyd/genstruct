@@ -122,7 +122,7 @@ class BuildingUnit(object):
             self.parent = items.pop('parent')
         else:
             self.parent = None
-            
+        
         self.functional_groups = [] # list of functional groups.
         # Topology info:
         # points of connection for other building units
@@ -141,7 +141,14 @@ class BuildingUnit(object):
 
         # centre of mass
         self.calculate_COM()
-
+        
+        # check for angles, this only applies to linear molecules which can
+        # be rotated
+        if items.has_key('angles'):
+            self.angles = items.pop('angles')
+        else:
+            self.angles = None
+            
     def build_atoms(self, coordinates, table):
         """
         Read in coordinates and table strings to build the 
@@ -946,7 +953,7 @@ class Cell(object):
             RXY = rotation_matrix(-xy_rotaxis, xy_rotangle)
         self.lattice = np.dot(self.lattice, RXY[:3,:3])
         return
-
+    
 
 class Database(list):
     """
@@ -986,8 +993,7 @@ class Database(list):
                     error("Multiple building units with the same name!")
                 parent[0].specialbu.append(deepcopy(bu))
                 self.pop(ind)
-
-        
+      
 class Generate(object):
     """
     Algorithm for generating MOFs
@@ -1039,6 +1045,25 @@ class Generate(object):
         """
         return
 
+    def expand_bu_list(self, bu_db):
+        """Return a list of building units expanded out and deep-copied."""
+        bu_list = []
+        for bu in bu_db:
+            bu_list.append(deepcopy(bu))
+            # check for special building units nested in the bu.
+            if bu.specialbu:
+                for i in bu.specialbu:
+                    bu_list.append(deepcopy(i))
+        return bu_list
+    
+    def assign_internal_indices(self, bu_db):
+        """Assign internal index values to each building unit."""
+        for id, bu in enumerate(bu_db):
+            # assign a temporary value for bu
+            bu.internal_index = id
+            for cp in bu.connect_points:
+                cp.bu_order = id
+        
     def exhaustive_sampling(self, bu_db):
         """
         Try every combination of bonds which are allowed in a
@@ -1050,17 +1075,8 @@ class Generate(object):
         stopwatch = Time()
         stopwatch.timestamp()
         # create a local instance of bu_db
-        base_building_units = deepcopy(bu_db)
-        for bu in bu_db:
-            if bu.specialbu:
-                base_building_units += [i for i in bu.specialbu]
-
-        # assign some indices etc..
-        for id, bu in enumerate(base_building_units):
-            # assign a temporary value for bu
-            bu.internal_index = id
-            for cp in bu.connect_points:
-                cp.bu_order = id
+        base_building_units = self.expand_bu_list(bu_db)
+        self.assign_internal_indices(base_building_units)
         # random seed 
         structures = self.random_insert(base_building_units)
         done = False
