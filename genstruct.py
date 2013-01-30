@@ -614,11 +614,11 @@ class Structure(object):
         for atom in bu.atoms:
             elem, coords = self.min_img_shift(atom=atom.coordinates)
             # distance checks
-            coordlist = [list(atom.coordinates[:3])]
-            for coord in coords.tolist():
-                coordlist.append(coord)
-            atmlist = [atom.element] + elem
-            xyz_file(atoms=atmlist, coordinates=coordlist)
+            #coordlist = [list(atom.coordinates[:3])]
+            #for coord in coords.tolist():
+            #    coordlist.append(coord)
+            #atmlist = [atom.element] + elem
+            #xyz_file(atoms=atmlist, coordinates=coordlist)
             distmat = distance.cdist([atom.coordinates[:3]], coords)
             # check for atom == atom, bonded
             excl = [atom.index] + [idx for idx in atom.bonds]
