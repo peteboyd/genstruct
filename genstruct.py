@@ -1272,8 +1272,10 @@ class Generate(object):
                                 # NOTE the next two lines should be in a separate
                                 # function which is or is not called based on
                                 # a DEBUG flag.
+                                file=open("debug.xyz", "w")
                                 for addstr in add_list:
-                                    write_debug_xyz(addstr)
+                                    file.writelines(addstr.xyz_lines)
+                                file.close()
                                 return
                             add_list.append(new_struct)
                             new_struct.sym_id = new_id[:]
@@ -1290,16 +1292,17 @@ class Generate(object):
                                 file.writelines(addstr.xyz_lines)
                             file.close()
                             return
-            file=open("debug.xyz", "w")
             if not add_list:
                 stopwatch.timestamp()
                 info("After %f seconds, "%stopwatch.timer +
                 "no possible new combinations, returning...")
+                file = open("debug.xyz", "w")
                 for addstr in structures:
                     file.writelines(addstr.xyz_lines)
                 file.close()
                 return
 
+            file=open("debug.xyz", "w")
             for addstr in add_list:
                 file.writelines(addstr.xyz_lines)
             file.close()
