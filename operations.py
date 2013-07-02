@@ -76,6 +76,13 @@ def parallel(vector1, vector2, tol=0.01):
 
     return np.allclose(np.dot(vector1, vector2), 1., atol=tol)
 
+def antiparallel(vector1, vector2, tol=0.01):
+
+    vector1 = vector1[:3]/length(vector1[:3])
+    vector2 = vector2[:3]/length(vector2[:3])
+
+    return np.allclose(np.dot(vector1, vector2), -1., atol=tol)
+
 def rotation_matrix_weave(axis, angle):
     """
     uses c library to compute rotation matrix,

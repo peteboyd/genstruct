@@ -601,6 +601,8 @@ class Structure(object):
         if parallel(-cp1.para, cp2.para, tol=0.05):
             if parallel(cp1.perp, cp2.perp, tol=0.05):
                 return True
+            elif antiparallel(cp1.perp, cp2.perp, tol=0.05):
+                return True
         return False
 
     def overlap_bu(self, bu):
@@ -608,9 +610,10 @@ class Structure(object):
         Check the bu supplied for overlap with all other atoms
         """
         # scale the van der waals radii by sf
+        return False
         sf = 0.4
         # NEED TO DEBUG here!
-        atomlist = [atom for bu in self.building_units for atom in bu.atoms]
+        atomlist = [atom for tbu in self.building_units for atom in tbu.atoms]
         for atom in bu.atoms:
             elem, coords = self.min_img_shift(atom=atom.coordinates)
             # distance checks
@@ -983,6 +986,7 @@ class Database(list):
                                     items=file.items(building_unit)))
             self[-1].internal_index = idx
         # special considerations for linked building units
+        pop_stuff = []
         for ind, bu in enumerate(self):
             if bu.parent:
                 # link up this building unit with it's parent
@@ -992,7 +996,10 @@ class Database(list):
                     # raise error
                     error("Multiple building units with the same name!")
                 parent[0].specialbu.append(deepcopy(bu))
-                self.pop(ind)
+                pop_stuff.append(ind)
+        pop_stuff.sort()
+        for i in reversed(pop_stuff):
+            self.pop(i)
       
 class Generate(object):
     """
