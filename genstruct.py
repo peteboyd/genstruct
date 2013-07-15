@@ -1046,12 +1046,6 @@ class Generate(object):
     def metcount(self, combo):
         return len([i for i in combo if self.bu_database[i].metal])
 
-    def generate_from_directives(self, directives):
-        """Builds a MOF based on directives as tuples, starting with the
-        initial insert.
-        """
-        return
-
     def expand_bu_list(self, bu_db):
         """Return a list of building units expanded out and deep-copied."""
         bu_list = []
@@ -1070,7 +1064,22 @@ class Generate(object):
             bu.internal_index = id
             for cp in bu.connect_points:
                 cp.bu_order = id
-        
+    
+    
+    def gen_directive(self, bu_db):
+        """Generates building directives."""
+        pass
+
+    def metal_seed(self, bu_db):
+        mets = [i for i in bu_db if i.metal]
+        return choice(mets)
+
+    def gen(self, bu_db):
+        met = self.metal_seed(bu_db)
+        # bond possibilities for all bonds in bu_db[0]
+        # with all other sbus
+        # group by order
+
     def exhaustive_sampling(self, bu_db):
         """
         Try every combination of bonds which are allowed in a
