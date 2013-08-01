@@ -45,3 +45,4 @@ class Atom(object):
         
     def translate(self, vector):
         self.coordinates[:3] += vector
+

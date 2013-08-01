@@ -41,5 +41,3 @@ class Cell(object):
             lines.append("atom_vector %12.5f %12.5f %12.5f\n"%(tuple(vector)))
                          
         return lines
-        
-        

@@ -92,10 +92,14 @@ class JobHandler(object):
                 directives = run.generate_build_directives(None, combo)
             elif self.options.build_directives:
                 directives = run.build_directives_from_options(build)
-            for d in directives:
+            for iter in self.options.max_trials:
+                d = directives.next()
                 # pass the directive to a MOF building algorithm
                 build.build_from_directives(d)
-    
+                if self.options.one_build_trial:
+                    info("Structure generation ceased after one trial.")
+                    break
+
     def _sbu_report(self):
         """Compute the surface areas and report them to a .csv file."""
         # WARNING - this assumes that SBUs with the same name but in
@@ -201,4 +205,4 @@ def main():
     
 if __name__ == '__main__':
     main()
-    
+

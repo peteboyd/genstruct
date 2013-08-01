@@ -54,5 +54,3 @@ class ConnectPoint(object):
             self._normal = normal / np.linalg.norm(normal)
             return self._normal
     
-        
-        

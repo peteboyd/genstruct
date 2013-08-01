@@ -150,3 +150,4 @@ class SBU_list(object):
             if sbu.identifier == identifier:
                 return sbu
         raise Exception("Could not find the SBU with the identifier %s"%(identifier))
+
