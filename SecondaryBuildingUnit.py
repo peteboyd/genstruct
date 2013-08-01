@@ -200,3 +200,4 @@ class SBU(object):
                                                  [i for i in atom.coordinates[:3]]))
             
         return line
+

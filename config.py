@@ -108,11 +108,12 @@ class Options(object):
         # known booleans
         booleans = ['verbose', 'quiet', 'silent', 'exhaustive',
                     'gen_single_bonding_set', 'calc_sbu_surface_area',
-                    'calc_max_sbu_span']
+                    'calc_max_sbu_span', 'one_build_trial']
         floats = ['distance_tolerance', 'overlap_tolerance']
         integers = ['organic_sbu_per_structure',
                     'metal_sbu_per_structure',
-                    'structure_sbu_length']
+                    'structure_sbu_length',
+                    'max_trials']
         lists = ['topologies', 'sbu_files', 'organic_sbus',
                  'metal_sbus']
         tuple_of_tuples = ['sbu_combinations']

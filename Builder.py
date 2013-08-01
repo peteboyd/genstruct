@@ -280,5 +280,3 @@ class Build(object):
             M[:3,3] = point - np.dot(R, point)
         return M
 
-
-    
