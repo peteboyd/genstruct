@@ -9,8 +9,18 @@ class Structure(object):
         self.cell = Cell()
         self.atoms = []
         self.bonds = []
-        
-        
+        # re-orient the cell
+        # shift all to within the periodic boundaries
+        # run symmetry finding on it.
+        # write to cif file.
+
+    def from_build(self, sbus):
+        """Build structure up from SBUs provided."""
+        # sort out the connectivity information
+        # copy over all the Atoms
+        for sbu in sbus:
+            
+
 class Cell(object):
     """contains periodic vectors for the structure."""
     

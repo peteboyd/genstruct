@@ -108,7 +108,7 @@ class Options(object):
         # known booleans
         booleans = ['verbose', 'quiet', 'silent', 'exhaustive',
                     'gen_single_bonding_set', 'calc_sbu_surface_area',
-                    'calc_max_sbu_span', 'one_build_trial']
+                    'calc_max_sbu_span']
         floats = ['distance_tolerance', 'overlap_tolerance']
         integers = ['organic_sbu_per_structure',
                     'metal_sbu_per_structure',
