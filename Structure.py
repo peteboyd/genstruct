@@ -18,7 +18,11 @@ class Structure(object):
         """Build structure up from SBUs provided."""
         # sort out the connectivity information
         # copy over all the Atoms
-        for sbu in sbus:
+        str_idx = 0
+        for id, sbu in enumerate(sbus):
+            for atom in sbu.atoms:
+                
+                
             
 
 class Cell(object):
