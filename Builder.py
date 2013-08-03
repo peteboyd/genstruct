@@ -91,9 +91,10 @@ class Build(object):
                     connect_point2.sbu_bond = (sbu_ind1, connect_point1.identifier)
                     self.bonding_check()
                     if self._completed_structure():
+                        # test for periodic overlaps.
                         info("Structure Generated!")
+                        self.structure.from_build(self.sbus)
                         return
-        sys.exit()
         
     def bonding_check(self):
         """Evaluate the presence of bonds between existing SBUs"""
