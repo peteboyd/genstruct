@@ -21,9 +21,7 @@ class Structure(object):
         str_idx = 0
         for id, sbu in enumerate(sbus):
             for atom in sbu.atoms:
-                
-                
-            
+                pass                
 
 class Cell(object):
     """contains periodic vectors for the structure."""

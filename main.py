@@ -195,8 +195,6 @@ class JobHandler(object):
 def main():
     options = config.Options()
     log = glog.Log(options)
-    db = ConfigParser.SafeConfigParser()
-    db.read(options.sbu_files[0])
     jerb = JobHandler(options)
     jerb.direct_job()
     
