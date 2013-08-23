@@ -9,7 +9,7 @@ import math
 from scipy.spatial import distance
 import itertools
 from logging import info, debug, warning, error, critical
-from elements import Radii
+from element_properties import Radii
 
 class Build(object):
     """Builds MOFs given directives."""
