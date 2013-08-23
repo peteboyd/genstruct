@@ -6,7 +6,7 @@ import numpy as np
 import itertools
 from scipy.spatial import distance
 from logging import info, debug, warning, error, critical
-from elements import Radii
+from element_properties import Radii
 from numpy import pi, cos, sin, arccos
 
 class SBU(object):

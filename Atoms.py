@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import numpy as np
-from elements import WEIGHT
+from element_properties import WEIGHT
 
 class Atom(object):
     """Basic atom class for the generation of structures."""
