@@ -20,7 +20,9 @@ class SBU(object):
         self.parent = None
         self.is_metal = False
         self.atoms = []
-        self.bonds = []
+        # child SBUs which are associated with this one through self.parent
+        self.children = []
+        self.bonds = {}
         self.connect_points = []
         
     def from_config(self, section, cfgdic):
@@ -66,7 +68,8 @@ class SBU(object):
                     atom_ind = int(bond[0])
                     self.atoms[atom_ind].sbu_bridge = connect_ind
                 else:
-                    self.bonds.append((int(bond[0]), int(bond[1]), bond[2]))
+                    b = tuple(sorted([bond[0], bond[1]]))
+                    self.bonds[b] = bond[2]
                     
         if not self.bonds:
             debug("No bonding found in input file for %s,"%self.name +
@@ -102,10 +105,11 @@ class SBU(object):
             # determine if neighbours
             bid1 = atom1.index
             bid2 = atom2.index
+            btest = tuple(sorted([bid1, bid2]))
             # loops over Null if self.bonds = [] (i.e. no bonding info in the input file)
             dist = dist_matrix[atid1, atid2]
-            for i, j, btype in self.bonds:
-                if all([q in [i,j] for q in [bid1,bid2]]):
+            for (i, j), btype in self.bonds.items():
+                if btest == (i, j):
                     # append neighbours
                     atom1.neighbours.append((dist, atid2))
                     atom2.neighbours.append((dist, atid1))
