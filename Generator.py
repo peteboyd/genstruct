@@ -45,7 +45,8 @@ class Generate(object):
         
         # expand the current SBU's bonds and establish possible SBU bondings
         # generate exaustive list of sbu combinations.
-        for k in self._yield_bonding_sbus(sbu, set(sbus), p=[0 for i in range(self.options.structure_sbu_length)]):
+        for k in self._yield_bonding_sbus(sbu, set(sbus), 
+                p=[0 for i in range(self.options.structure_sbu_length)]):
             # pair k to the appropriate sbu,
             # determine if the sbus can be bonded,
             # yield the build directive.
@@ -78,6 +79,8 @@ class Generate(object):
         """Hacky bit for the recursive SBU bond generator
         """
         def is_valid_tuple(sbu_tuple):
+            # check if one of the sbus contains a special bond equal to 
+            # sbus' special bond.
             return all([sbu.is_metal != sbut.is_metal for sbut in sbu_tuple])
         return is_valid_tuple
 
@@ -136,7 +139,20 @@ class SBU_list(object):
     
     def __init__(self, sbu_list):
         self.list = sbu_list
-    
+        self._truncate()
+
+    def _truncate(self):
+        trunc = []
+        for sbu1, sbu2 in itertools.combinations(self.list, 2):
+            if sbu1.parent == sbu2.name:
+                trunc.append(self.list.index(sbu1)) 
+                sbu2.children.append(sbu1)
+            elif sbu2.parent == sbu1.name:
+                trunc.append(self.list.index(sbu2))
+                sbu1.children.append(sbu2)
+        for k in reversed(sorted(trunc)):
+            del self.list[k] 
+
     def get(self, identifier, _METAL=False):
         """Produces the SBU with the identifier provided, this filters between
         organic and metal SBUs"""
