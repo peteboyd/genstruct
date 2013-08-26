@@ -80,7 +80,7 @@ class JobHandler(object):
         if self.options.sbu_combinations:
             combinations = run.combinations_from_options()
         else:
-            # remove SBUs if not listed in options.organic_sbus or options.metal_sbus        
+            # remove SBUs if not listed in options.organic_sbus or options.metal_sbus
             combinations = run.generate_sbu_combinations()
 
         # generate the MOFs.
