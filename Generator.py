@@ -30,8 +30,10 @@ class Generate(object):
         return combs
     
     def _valid_sbu_combination(self, sbu_set):
-        """Currently only checks if there is just one Metal and the rest organic."""
-        return len([i for i in sbu_set if i.is_metal]) == 1
+        """Currently only checks if there is the correct number of metal 
+        SBUs in the combination."""
+        return len([i for i in sbu_set if i.is_metal]) ==\ 
+                self.options.metal_sbu_per_structure 
         
     def generate_build_directives(self, sbu, sbus):
         """Requires maximum length of sbu insertions."""
