@@ -9,12 +9,14 @@ import logging
 import sys
 from logging import info, debug, warning, error, critical
 import config
+from config import Terminate
 import glog
 import ConfigParser
 from Generator import Generate
 from SecondaryBuildingUnit import SBU
 from Builder import Build
 from CSV import CSV
+from CreateInput import 
 import os
 
 class JobHandler(object):
@@ -26,18 +28,27 @@ class JobHandler(object):
         self.options = options
         self._topologies = {}
         self.sbu_pool = []
-        self._read_sbu_database_files()
-        self._separate_topologies()
 
     def direct_job(self):
         """Reads the options and decides what to do next."""
-            
+        
+        if self.options.create_sbu_input_files:
+            info("Creating input files")
+
+            job = SBUFileRead(self.options)
+            job.read_sbu_files()
+            job.write_file()
+
+            Terminate()
+
+        self._read_sbu_database_files()
+        self._separate_topologies()
         # failsafe in case no topology is requested in the input file.
         if not self.options.topologies:
             self.options.topologies = self._topologies.keys()
             debug("No topologies requested, trying all of the ones in the SBU database files." + 
                   " These are %s"%", ".join(self.options.topologies))
-            
+         
         for top in self.options.topologies:
             assert top in self._topologies.keys(), "topology %s is not in the SBU list"%top
             
@@ -59,7 +70,7 @@ class JobHandler(object):
         
         if not self.options.build_directives and not self.options.exhaustive:
             info("Genstruct not requested to build structures.")
-            sys.exit()
+            Terminate() 
             
         for top in self.options.topologies:
             info("Starting with the topology: %s"%top)
@@ -190,7 +201,6 @@ class JobHandler(object):
         for sbu_request in self.options.metal_sbus:
             if sbu_request not in [i.identifier for i in all_sbus if i.is_metal]:
                 warning("SBU id %i is not in the metal SBU database"%(int(sbu_request)))
-            
     
 def main():
     options = config.Options()

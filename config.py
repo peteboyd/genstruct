@@ -108,7 +108,7 @@ class Options(object):
         # known booleans
         booleans = ['verbose', 'quiet', 'silent', 'exhaustive',
                     'gen_single_bonding_set', 'calc_sbu_surface_area',
-                    'calc_max_sbu_span']
+                    'calc_max_sbu_span', 'create_sbu_input_files']
         floats = ['distance_tolerance', 'overlap_tolerance']
         integers = ['organic_sbu_per_structure',
                     'metal_sbu_per_structure',
@@ -155,3 +155,7 @@ class Options(object):
         else:
             val = self.job.get(section, key)
         return val
+
+def Terminate():
+    info("Genstruct terminated normally")
+    sys.exit(1)
