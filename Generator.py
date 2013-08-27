@@ -33,7 +33,8 @@ class Generate(object):
         """Currently only checks if there is the correct number of metal 
         SBUs in the combination."""
         return len([i for i in sbu_set if i.is_metal]) == \
-                self.options.metal_sbu_per_structure 
+                self.options.metal_sbu_per_structure
+
         
     def generate_build_directives(self, sbu, sbus):
         """Requires maximum length of sbu insertions."""
@@ -54,10 +55,6 @@ class Generate(object):
             if self._check_operation(sbu_bonding_pairs):
                 for j in self._yield_valid_bonds(sbu_bonding_pairs):
                     yield [sbu] + zip(sbu_bonding_pairs,j)
-                    # break loop if only the first set of bonding combinations
-                    # are requested
-                    if self.options.gen_single_bonding_set:
-                        break
         
     def _check_operation(self, sbu_bonding_pairs):
         """Return True if the SBUs can be bonded together."""
@@ -69,10 +66,27 @@ class Generate(object):
     
     def _valid_sbu_pair(self, sbu1, sbu2):
         """Determine if the two SBUs can be bonded.  Currently set to
-        flag those which are of the same type (organic|metal)
+        flag true if the two sbus contain matching bond flags, otherwise
+        if they are a (metal|organic) pair
         """
-        if sbu1.is_metal != sbu2.is_metal:
+        spec_cp1s = [cp.special for cp in sbu1.connect_points if cp.special]
+        const_cp1s = [cp.constraint for cp in sbu1.connect_points if cp.constraint]
+        spec_cp2s = [cp.special for cp in sbu2.connect_points if cp.special]
+        const_cp2s = [cp.constraint for cp in sbu2.connect_points if cp.special]
+
+        none_spec_cp1 = [cp.special is None for cp in sbu1.connect_points]
+        none_const_cp1 = [cp.constraint is None for cp in sbu1.connect_points]
+        none_spec_cp2 = [cp.special is None for cp in sbu2.connect_points]
+        none_const_cp2 = [cp.constraint is None for cp in sbu2.connect_points]
+        # Return true if they have matching bond_flags
+        if any([i == j for i in spec_cp1s for j in const_cp2s]) or \
+                any([i == j for i in spec_cp2s for j in const_cp1s]):
             return True
+
+        if any(none_spec_cp1) and any(none_const_cp1) and any(none_spec_cp2) \
+                and any(none_const_cp2):    
+            if sbu1.is_metal != sbu2.is_metal:
+                return True
         return False
 
     def _valid_sbu_pairs(self, sbu):
@@ -81,7 +95,7 @@ class Generate(object):
         def is_valid_tuple(sbu_tuple):
             # check if one of the sbus contains a special bond equal to 
             # sbus' special bond.
-            return all([sbu.is_metal != sbut.is_metal for sbut in sbu_tuple])
+            return all([self._valid_sbu_pair(sbu, sbut) for sbut in sbu_tuple])
         return is_valid_tuple
 
     def _gen_sbu_bonding_pairs(self, sbu_list):
