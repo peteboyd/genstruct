@@ -16,7 +16,7 @@ from Generator import Generate
 from SecondaryBuildingUnit import SBU
 from Builder import Build
 from CSV import CSV
-from CreateInput import 
+from CreateInput import SBUFileRead 
 import os
 
 class JobHandler(object):
@@ -37,6 +37,7 @@ class JobHandler(object):
 
             job = SBUFileRead(self.options)
             job.read_sbu_files()
+            job.sort_sbus()
             job.write_file()
 
             Terminate()
@@ -156,7 +157,7 @@ class JobHandler(object):
         files."""
         
         for file in self.options.sbu_files:
-            info("reading %s"%(file))
+            debug("reading %s"%(file))
             self._from_config(file)
                 
     def _from_config(self, filename):
@@ -164,7 +165,7 @@ class JobHandler(object):
         sbu_config.read(filename)
         info("Found %i SBUs"%(len(sbu_config.sections())))
         for raw_sbu in sbu_config.sections():
-            info("Reading %s"%(raw_sbu))
+            debug("Reading %s"%(raw_sbu))
             sbu = SBU()
             sbu.from_config(raw_sbu, sbu_config)
             self.sbu_pool.append(sbu)

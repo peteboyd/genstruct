@@ -25,7 +25,7 @@ class Atom(object):
     def mass(self):
         return WEIGHT[self.element]
     
-    def from_old_config(self, line):
+    def from_config_ff(self, line):
         """Parse data from old config file format"""
         line = line.strip().split()
         self.element = line[0]

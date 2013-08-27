@@ -17,7 +17,7 @@ class InputSBU(object):
     Genstruct. This input file is a necessary step in case bonding
     flags or symmetry are incorrect."""
     def __init__(self, filename):
-        self.data = {'name':'','index':'', 'metal':'', 'topology':'', 'parent':''
+        self.data = {'name':'','index':'', 'metal':'', 'topology':'', 'parent':'',
                 'atomic_info':'', 'bond_table':'', 'connectivity':'',
                 'connect_flag':'', 'connect_sym':''}
         self.name = clean(filename) 
@@ -32,10 +32,10 @@ class InputSBU(object):
         if "m" == ind[-1:]:
             ind = ind[:-1]
         try:
-            ind = int(ind.lsplit("index"))
+            ind = int(ind.lstrip("index"))
         except ValueError:
             ind = 0
-        self.update(index=ind)
+        self.update(index=str(ind))
 
     def get_metal(self):
         if "m" in self.name[-2:]:
@@ -47,7 +47,7 @@ class InputSBU(object):
         """If the .mol file ends with an 's', this will interpret
         it as a child SBU, the parent will be the mol name before the 's'"""
         if "s" in self.name[-1:]:
-            self.upate(parent=self.name[:-1])
+            self.update(parent=self.name[:-1])
 
     def set_topology(self, top):
         self.update(topology=top)
@@ -56,7 +56,7 @@ class InputSBU(object):
         self.data.update(kwargs)
 
     def update(self, **kwargs):
-        for key, val in kwargs.items()
+        for key, val in kwargs.items():
             self.data[key] += val
 
     def _reset_formal_charges(self):
@@ -80,9 +80,10 @@ class InputSBU(object):
             N = atom.atomicnum
             if N == 54 or (N >= 89 and N <= 102):
                 connect_index += 1
+                con_line = "%4i "%(connect_index)
                 X = "%12.4f %8.4f %8.4f"%(atom.coords)
                 if (N >= 89 and N <= 102):
-                    special.append((connect_index-1, N%89+1))
+                    special.append((connect_index, N%89+1))
                 for neighbour in ob.OBAtomAtomIter(atom.OBAtom):
                     x = neighbour.GetX() - atom.coords[0]
                     y = neighbour.GetY() - atom.coords[1]
@@ -96,15 +97,15 @@ class InputSBU(object):
                     else:
                         neighbour.SetFormalCharge(connect_index)
 
-                con_line = "".join([X, bond_vector, net_vector, "\n"])
+                con_line += "".join([X, bond_vector, net_vector, "\n"])
                 self.update(connectivity=con_line)
                 self._remove_atoms(atom.OBAtom, net_atom, bond_atom)
 
         # include special considerations
         for (i, spec) in special:
-            if spec == 89:
+            if spec == 2:
                 bond_partner = 1
-            elif spec == 90:
+            elif spec == 1:
                 bond_partner = 2
             else:
                 bond_partner = 0
@@ -131,6 +132,7 @@ class InputSBU(object):
             end_idx = bond.GetEndAtomIdx()
             type = self.return_bondtype(bond)
             line = "%4i%4i%4s\n"%(start_idx-1, end_idx-1, type)
+            self.update(bond_table=line)
 
     def return_bondtype(self, bond):
         start_atom = bond.GetBeginAtom()
@@ -160,7 +162,8 @@ class InputSBU(object):
        return pyatom.OBAtom.GetData("FFAtomType").GetValue()
 
     def __str__(self):
-        line = "[%(name)s]\nindex = %(index)i\ntopology = %(topology)s\n"%(self.data)
+        line = "[%(name)s]\nindex = %(index)s\nmetal = %(metal)s\n"%(self.data)
+        line += "topology = %(topology)s\n"%(self.data)
         if self.data['parent']:
             line += "parent = %(parent)s\n"%(self.data)
         line += "atoms = \n%(atomic_info)stable = \n"%(self.data)
@@ -196,9 +199,21 @@ class SBUFileRead(object):
             s.get_bond_info()
 
             self.sbus.append(s)
+    def sort_sbus(self):
+        """Put metals first, then organics in order of their indices"""
+        metals, organics = [], []
+        for sbu in self.sbus:
+            sbu_ind = int(sbu.data['index'])
+            if sbu.data['metal'] == 'True':
+                metals.append((sbu_ind, sbu))
+            else:
+                organics.append((sbu_ind, sbu))
+        
+        self.sbus = [i[1] for i in sorted(metals)] +\
+                [i[1] for i in sorted(organics)]
 
     def write_file(self):
-        filename = self.options.job_dir + self.options.jobname + ".out"
+        filename = os.path.join(self.options.job_dir,self.options.jobname)+ ".out"
         info("writing SBU file to %s"%(filename))
         f = open(filename, "w")
         for sbu in self.sbus:

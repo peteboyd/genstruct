@@ -17,6 +17,9 @@ class ConnectPoint(object):
         self.connected = False
         # tuple (sbu_order, connect.identifier)
         self.sbu_bond = None
+        self.constraint = None
+        self.special = None
+        self.symmetry = 1
         
     def from_config(self, line):
         """ Obtain the connectivity information from the config .ini file."""
@@ -26,12 +29,15 @@ class ConnectPoint(object):
         self.origin[:3] = np.array([float(x) for x in line[1:4]])
         self.z[:3] = np.array([float(x) for x in line[4:7]])
         self.y[:3] = np.array([float(x) for x in line[7:10]])
-        try:
-            self.special = int(line[11])
-        except IndexError:
-            self.special = None
-        except ValueError:
-            self.special = None
+        if len(line) == 12:
+            try:
+                self.special = int(line[11])
+            except ValueError:
+                self.special = None
+            try:
+                self.symmetry = int(line[12])
+            except ValueError:
+                self.symmetry = 1
     
     def rotate(self, R):
         self.origin = np.dot(R, self.origin)
