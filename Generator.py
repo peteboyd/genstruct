@@ -51,6 +51,7 @@ class Generate(object):
             # pair k to the appropriate sbu,
             # determine if the sbus can be bonded,
             # yield the build directive.
+            print k
             sbu_bonding_pairs = self._gen_sbu_bonding_pairs([sbu] + self.flatten(k))
             if self._check_operation(sbu_bonding_pairs):
                 for j in self._yield_valid_bonds(sbu_bonding_pairs):
@@ -120,7 +121,46 @@ class Generate(object):
         if isinstance(s[0], list):
             return self.flatten(s[0]) + self.flatten(s[1:])
         return s[:1] + self.flatten(s[1:])
-    
+
+    def roundrobin(self, *iterables):
+        pending = len(iterables)
+        nexts = itertools.cycle(iter(it).next for it in iterables)
+        while pending:
+            try:
+                for next in nexts:
+                    yield next()
+            except StopIteration:
+                pending -= 1
+                nexts = itertools.cycle(itertools.islice(nexts, pending))
+
+    def _gen_bonding_sbus(self, sbu, sbus, index=0):
+        """Returns an iterator which runs over tuples of bonds
+        with other sbus."""
+        # an iterator that iterates sbu's first, then sbus' connect_points
+        ncps = len(sbu.connect_points)
+        sbu_repr = list(itertools.product([sbu], sbu.connect_points))
+
+        bond_iter = self.roundrobin(*[itertools.product([s], s.connect_points)
+                                    for s in sbus])
+        # don't like how this iterates, but will do for now.
+        all_bonds = itertools.tee(bond_iter, ncps)
+        for bond_set in itertools.product(*all_bonds):
+            full_bond_set = list(itertools.izip(sbu_repr, bond_set))
+            if all([self._valid_bond_pair(i) for i in full_bond_set]):
+                yield [((index, cp1.identifier),(sbu2, cp2)) for 
+                        (sbu1, cp1),(sbu2,cp2) in full_bond_set]
+
+    def _valid_bond_pair(self, set):
+        """Determine if the two SBUs can be bonded.  Currently set to
+        flag true if the two sbus contain matching bond flags, otherwise
+        if they are a (metal|organic) pair
+        """
+        (sbu1, cp1), (sbu2, cp2) = set
+        if all([i is None for i in [cp1.special, cp2.special, cp1.constraint, cp2.constraint]]):
+            return sbu1.is_metal != sbu2.is_metal
+
+        return (cp1.special == cp2.constraint) and (cp2.special == cp1.constraint)
+
     def _yield_bonding_sbus(self, sbu, sbus, index=0, p=[]):
         """Return a tuple of SBUs generated exhaustively.
         """
@@ -129,10 +169,14 @@ class Generate(object):
         else:
             index += 1
             func = self._valid_sbu_pairs(sbu)
-            for iterator in itertools.ifilter(func,
-                                            itertools.product(sbus, repeat=(len(sbu.connect_points)))):
+            #for iterator in itertools.ifilter(func,
+            #                                itertools.product(sbus, repeat=(len(sbu.connect_points)))):       
+
+            #TODO(pboyd): Probably ignore bonding with the metal-metal cases, since they will likely always form a periodic boundary right at the beginning of the Build.
+            for iterator in self._gen_bonding_sbus(sbu, sbus, index):
+
                 p[index-1] = list(iterator)
-                q = self.flatten(p)[index-1]
+                q = self.flatten(p)[index-1][1][0]
                 for s in self._yield_bonding_sbus(q, sbus, index, p):
                     yield s
         
