@@ -35,23 +35,24 @@ class SBU(object):
         if cfgdic.has_option(section, 'parent'):
             self.parent = cfgdic.get(section,'parent')
         # read in atom information
-        for idx, atom_line in enumerate(cfgdic.get(section, 'coordinates').strip().splitlines()):
+        # depreciated coordinates, but backwards compatible
+        if cfgdic.has_option(section, 'coordinates'):
+            atom_info = cfgdic.get(section, 'coordinates').strip().splitlines()
+        elif cfgdic.has_option(section, 'atoms'):
+            atom_info = cfgdic.get(section, 'atoms').strip().splitlines()
+
+        for idx, atom_line in enumerate(atom_info):
             split_atom_line = atom_line.split()
             newatom = Atom()
             newatom.index = idx
             newatom.sbu_index = self.identifier
             newatom.sbu_metal = self.is_metal
             if len(split_atom_line) == 5:
-                newatom.from_old_config(atom_line)
+                newatom.from_config_ff(atom_line)
             elif len(split_atom_line) == 4:
                 newatom.from_config(atom_line)
             self.atoms.append(newatom)
             
-        # new consideration for more transferrable input file - force field type in a separate list.
-        if cfgdic.has_option(section, 'force_field_type'):
-            for idx, ff_line in enumerate(cfgdic.get(section, 'force_field_type').strip().splitlines()):
-                self.atoms[idx].force_field_type = ff_line.strip()
-        
         # bonding table
         if cfgdic.has_option(section, 'table'):
             for table_line in cfgdic.get(section, 'table').strip().splitlines():
@@ -79,7 +80,34 @@ class SBU(object):
             connect_point = ConnectPoint()
             connect_point.from_config(cp_line)
             self.connect_points.append(connect_point)
-            
+           
+        # check for constraints
+        if cfgdic.has_option(section, 'bond_constraints'):
+            const_lines = cfgdic.get(section, 'bond_constraints').strip().splitlines()
+            for constraint in const_lines:
+                constraint = constraint.split()
+                id = int(constraint[0])
+                con = int(constraint[1])
+                cp = self.get_cp(id)
+                cp.constraint = con
+
+        # new special/constraint section
+        elif cfgdic.has_option(section, 'connect_flag'):
+            const_lines = cfgdic.get(section, 'connect_flag').strip().splitlines()
+            for constraint in const_lines:
+                id, special, const = [int(i) for i in constraint.split()]
+                cp = self.get_cp(id)
+                cp.special = special
+                cp.constraint = const
+
+        # new symmetry flag stuff
+        if cfgdic.has_option(section, 'connect_sym'):
+            sym_lines = cfgdic.get(section, 'connect_sym').strip().splitlines()
+            for sym in sym_lines:
+                id, sym_flag = [int(i) for i in sym.split()]
+                cp = self.get_cp(id)
+                cp.symmetry = sym_flag
+
     def rotate(self, rotation_matrix):
         """Apply the rotation matrix to the coordinates and connect_points in
         the SBU."""
