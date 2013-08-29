@@ -7,22 +7,23 @@ from logging import info, debug, warning, error, critical
 import numpy
 from element_properties import ATOMIC_NUMBER 
 
-def clean(name):
-    if name[-4:] == ".mol":
-        return name[:-4]
+def clean(name, ext):
+    size = len(ext)+1
+    if name[-size:] == "."+ext:
+        return name[:-size]
     return name
 
 class InputSBU(object):
     """Contains the necessary information to produce an input for
     Genstruct. This input file is a necessary step in case bonding
     flags or symmetry are incorrect."""
-    def __init__(self, filename):
+    def __init__(self, filename, ext):
         self.data = {'name':'','index':'', 'metal':'', 'topology':'', 'parent':'',
                 'atomic_info':'', 'bond_table':'', 'connectivity':'',
                 'connect_flag':'', 'connect_sym':''}
-        self.name = clean(filename) 
+        self.name = clean(filename, ext) 
         self.update(name=self.name)
-        self.mol = pybel.readfile('mol', filename).next()
+        self.mol = pybel.readfile(ext, filename).next()
         self._reset_formal_charges()
 
     def get_index(self):
@@ -44,7 +45,7 @@ class InputSBU(object):
             self.update(metal="False")
 
     def special(self):
-        """If the .mol file ends with an 's', this will interpret
+        """If the mol file ends with an 's', this will interpret
         it as a child SBU, the parent will be the mol name before the 's'"""
         if "s" in self.name[-1:]:
             self.update(parent=self.name[:-1])
@@ -182,10 +183,11 @@ class SBUFileRead(object):
 
     def read_sbu_files(self):
         files = self.options.sbu_files if self.options.sbu_files else os.listdir('.')
-        files = [file for file in files if '.mol' == file[-4:]]
+        files = [file for file in files if 
+                 '.'+self.options.mol_extension == file[-4:]]
         for f in files:
             info("Reading: %s"%(f))
-            s = InputSBU(os.path.basename(f))
+            s = InputSBU(os.path.basename(f), self.options.mol_extension)
             s.get_index()
             s.get_metal()
             s.special()

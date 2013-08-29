@@ -20,7 +20,16 @@ class Atom(object):
         self.force_field_type = None
         self.coordinates = null.copy()
         self.neighbours = []
-        
+    
+    def scaled_pos(self, inv_cell): 
+        return np.dot(inv_cell, self.coordinates[:3])
+
+    def in_cell_scaled(self, inv_cell):
+        return np.array([i%1 for i in self.scaled_pos(inv_cell)])
+
+    def in_cell(self, cell, inv_cell):
+        return np.dot(self.in_cell_scaled(inv_cell), cell)
+
     @property
     def mass(self):
         return WEIGHT[self.element]

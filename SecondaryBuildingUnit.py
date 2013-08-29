@@ -60,12 +60,12 @@ class SBU(object):
                 # add the bonding information
                 # first two cases are for bonding to connecting points
                 if "c" in bond[0].lower():
-                    connect_ind = int(bond[0].lower().strip('c'))-1
+                    connect_ind = int(bond[0].lower().strip('c'))
                     atom_ind = int(bond[1])
                     self.atoms[atom_ind].sbu_bridge = connect_ind
                 elif "c" in bond[1].lower():
                     # subtract 1 since the input file starts at 1
-                    connect_ind = int(bond[1].lower().strip('c'))-1
+                    connect_ind = int(bond[1].lower().strip('c'))
                     atom_ind = int(bond[0])
                     self.atoms[atom_ind].sbu_bridge = connect_ind
                 else:
@@ -107,6 +107,13 @@ class SBU(object):
                 id, sym_flag = [int(i) for i in sym.split()]
                 cp = self.get_cp(id)
                 cp.symmetry = sym_flag
+
+    def update_atoms(self, index_base, order):
+        self.bonds = {(i+index_base, j+index_base):val for (i, j), val in 
+                      self.bonds.items()}
+        for atom in self.atoms:
+            atom.index += index_base
+            atom.sbu_order = order
 
     def rotate(self, rotation_matrix):
         """Apply the rotation matrix to the coordinates and connect_points in
@@ -214,7 +221,6 @@ class SBU(object):
             if dist_matrix[cp1, cp2] > max_dist:
                 max_dist = dist_matrix[cp1, cp2]
         return max_dist
-            
         
     def get_cp(self, identifier):
         for cp in self.connect_points:
@@ -222,7 +228,10 @@ class SBU(object):
                 return cp
         error("%i not in the connecting points! "%(identifier)+
               ", ".join([str(i.identifier) for i in self.connect_points]))
-            
+
+    def __len__(self):
+        return len(self.atoms)
+
     def __str__(self):
         """Return an .xyz format of the SBU."""
         line = ""
