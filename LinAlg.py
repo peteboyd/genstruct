@@ -1,22 +1,25 @@
 #!/usr/bin/env python
 import numpy as np
+RAD2DEG = 180./np.pi
 
 class LinAlg(object):
-    """class method to encompass all the general linear algebra used in the program"""
-    def calc_angle(cls, v1, v2):
-    """ Returns the angle in radians between vectors 'v1' and 'v2'::
-    """
-    v1_u = v1 / np.linalg.norm(v1)
-    v2_u = v2 / np.linalg.norm(v2)
-    angle = np.arccos(np.dot(v1_u, v2_u))
-    if np.isnan(angle):
-        if (v1_u == v2_u).all():
-            return 0.0
-        else:
-            return np.pi
-    return angle
+    """class methods to encompass all the general linear algebra used in the program"""
 
-    def rotation_matrix(cls, axis, angle, point=None):
+    @staticmethod
+    def calc_angle(v1, v2):
+        """Returns the angle in radians between vectors 'v1' and 'v2'"""
+        v1_u = v1[:3] / np.linalg.norm(v1)
+        v2_u = v2[:3] / np.linalg.norm(v2)
+        angle = np.arccos(np.dot(v1_u, v2_u))
+        if np.isnan(angle):
+            if (v1_u == v2_u).all():
+                return 0.0
+            else:
+                return np.pi
+        return angle
+
+    @staticmethod
+    def rotation_matrix(axis, angle, point=None):
         """
         returns a 3x3 rotation matrix based on the
         provided axis and angle

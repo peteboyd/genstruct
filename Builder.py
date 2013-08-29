@@ -10,6 +10,7 @@ from scipy.spatial import distance
 import itertools
 from logging import info, debug, warning, error, critical
 from element_properties import Radii
+from LinAlg import LinAlg
 
 class Build(object):
     """Builds MOFs given directives."""
@@ -96,12 +97,15 @@ class Build(object):
                     connect_point2.connected = True
                     connect_point2.sbu_bond = (sbu_ind1, connect_point1.identifier)
                     self.bonding_check()
-                    if self._completed_structure():
-                        # test for periodic overlaps.
-                        info("Structure Generated!")
-                        new_structure = Structure()
-                        new_structure.from_build(self)
-                        return
+                if self._completed_structure():
+                    # test for periodic overlaps.
+                    new_structure = Structure(self.options)
+                    new_structure.from_build(self)
+                    if new_structure.compute_overlap():
+                        debug("overlap found in final structure")
+                    new_structure.re_orient()
+                    info("Structure Generated!")
+                    return
         
     def bonding_check(self):
         """Evaluate the presence of bonds between existing SBUs"""
@@ -252,15 +256,15 @@ class Build(object):
         # first rotation
         cp = np.cross(cp1.z[:3], cp2.z[:3])
         axis = cp/np.linalg.norm(cp)
-        angle = self.calc_angle(cp1.z, cp2.z)
-        R = self.rotation_matrix(axis, angle, point=cp2.origin[:3])
+        angle = LinAlg.calc_angle(cp1.z, cp2.z)
+        R = LinAlg.rotation_matrix(axis, angle, point=cp2.origin[:3])
         sbu2.rotate(R)
         
     def rotation_y(self, sbu1, cp1, sbu2, cp2):
         # second
         cp = np.cross(cp1.y[:3], cp2.y[:3])
         axis = cp/np.linalg.norm(cp)
-        angle = self.calc_angle(cp1.y, cp2.y)
-        R = self.rotation_matrix(axis, angle, point=cp2.origin[:3])
+        angle = LinAlg.calc_angle(cp1.y, cp2.y)
+        R = LinAlg.rotation_matrix(axis, angle, point=cp2.origin[:3])
         sbu2.rotate(R)
 
