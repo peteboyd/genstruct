@@ -69,7 +69,7 @@ class SBU(object):
                     atom_ind = int(bond[0])
                     self.atoms[atom_ind].sbu_bridge = connect_ind
                 else:
-                    b = tuple(sorted([bond[0], bond[1]]))
+                    b = tuple(sorted([int(bond[0]), int(bond[1])]))
                     self.bonds[b] = bond[2]
                     
         if not self.bonds:
@@ -161,6 +161,10 @@ class SBU(object):
         return np.average(np.array([atom.coordinates for atom in self.atoms]),axis=0,
                           weights=np.array([atom.mass for atom in self.atoms]))
    
+    @property
+    def centre_of_atoms(self):
+        return np.average(np.array([atom.coordinates for atom in self.atoms]),axis=0)
+
     @property
     def surface_area(self, probe=1.82, resolution=0.03):
         """Computes surface area. Currently uses default resolution of 0.03 A^2

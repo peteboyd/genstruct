@@ -17,43 +17,49 @@ class Build(object):
         self.options = options
         # store SBU copies
         self.sbus = []
-        self.structure = Structure()
-        self.periodic_vectors = self.structure.cell
+        self.periodic_vectors = Cell() 
         self.periodic_origins = np.zeros((3,3))
         self.periodic_index = 0
         
-    def build_from_directives(self, directives):
+    def reset(self):
         self.sbus = []
+        self.periodic_vectors = Cell() 
+        self.periodic_origins = np.zeros((3,3))
+        self.periodic_index = 0
+
+    def build_from_directives(self, directives):
         index_type = []
+        self.reset()
         if self.options.debug_writing:
             self.init_debug()
 
         for count, operation in enumerate(directives):
-
             if isinstance(operation, SBU):
                 # starting seed
                 index_type.append(0)
                 self.sbus.append(copy.deepcopy(operation))
                 if self.options.debug_writing:
                     self.debug_xyz(operation)            
+                self.bonding_check()
 
             elif operation[0][0] not in index_type:
                 # this means the SBU wasn't successfully inserted, so all building
                 # commands to this SBU should be ignored
                 pass
             elif self.sbus[index_type.index(operation[0][0])].\
-                        get_cp(operation[1][0].identifier).connected:
+                        get_cp(operation[0][1]).connected:
                 debug("SBU %i already bonded at connect point %i"%(
-                            index_type.index(operation[0][0]),operation[1][0].identifier))
+                            index_type.index(operation[0][0]),operation[0][1]))
             else:
                 # sbu1 and connect_point1 must be related to a copied SBU
                 # in self.sbus
+                (sbu1_order, sbu1_cpind), (sbu2_type, sbu2_cptype) = operation
                 debug("Length of structure = %i"%len(self.sbus))
-                sbu_ind1 = index_type.index(operation[0][0])
+                sbu_ind1 = index_type.index(sbu1_order)
                 sbu1 = self.sbus[sbu_ind1]
-                connect_point1 = sbu1.get_cp(operation[1][0].identifier)
-                sbu2 = copy.deepcopy(operation[0][2])
-                connect_point2 = sbu2.get_cp(operation[1][1].identifier)
+                connect_point1 = sbu1.get_cp(sbu1_cpind)
+                sbu2 = copy.deepcopy(sbu2_type)
+                connect_point2 = sbu2.get_cp(sbu2_cptype.identifier)
                 debug("Trying SBU %s on (SBU %i, %s) "%(
                     sbu2.name, sbu_ind1, sbu1.name) + "using the bonds (%i, %i)"%(
                     connect_point2.identifier, connect_point1.identifier))
@@ -93,7 +99,8 @@ class Build(object):
                     if self._completed_structure():
                         # test for periodic overlaps.
                         info("Structure Generated!")
-                        self.structure.from_build(self.sbus)
+                        new_structure = Structure()
+                        new_structure.from_build(self)
                         return
         
     def bonding_check(self):
@@ -127,6 +134,8 @@ class Build(object):
                     cp2.sbu_bond = (ind1, cp1.identifier)           
     
     def _completed_structure(self):
+        # check to make sure all organic and metal groups are represented
+        # in the structure
         return (self.periodic_index == 3 and
                 all([cp.connected for sbu in self.sbus for cp in sbu.connect_points]))
                    
@@ -177,6 +186,9 @@ class Build(object):
         for o_sbu in self.sbus:
             coords2 = np.array([atom.coordinates for atom in o_sbu.atoms
                                 if not atom.sbu_bridge])
+            # the way the distance matrix is set up, intra-sbu distance
+            # checks are not considered. This removes any need to ignore
+            # bonded atoms until the very end.
             dist_mat = distance.cdist(coords1, coords2)
             for (atom1, atom2), dist in np.ndenumerate(dist_mat):
                 elem1, elem2 = sbu.atoms[atom1].element, o_sbu.atoms[atom2].element
@@ -216,14 +228,13 @@ class Build(object):
                       cp1.special == None, cp2.special == None)
         if all(check_same):
             return False
-        check_same = (sbu1.is_metal == sbu2.is_metal, cp1.special == cp2.special,
-                      cp1.identifier == cp2.identifier)
+        check_same = (sbu1.is_metal == sbu2.is_metal, 
+                      (cp1.special != cp2.constraint or cp2.special != cp1.constraint))
         if all(check_same):
             return False
         # return false if either connect point has a special flag.
-        if cp1.special != cp2.special:
+        if cp1.special != cp2.constraint or cp2.special != cp1.constraint:
             return False
-        
         # check if vectors are aligned
         if not np.allclose(np.dot(cp1.z[:3], cp2.z[:3]), -1., atol=0.05):
             return False
@@ -252,32 +263,4 @@ class Build(object):
         angle = self.calc_angle(cp1.y, cp2.y)
         R = self.rotation_matrix(axis, angle, point=cp2.origin[:3])
         sbu2.rotate(R)
-
-    def calc_angle(self, vect1, vect2):
-        ic1 = vect1[:3] / np.linalg.norm(vect1[:3])
-        ic2 = vect2[:3] / np.linalg.norm(vect2[:3])
-        a = min(max(np.dot(ic1, ic2), -1.0), 1.0)
-        return math.acos(a)
-
-    def rotation_matrix(self, axis, angle, point=None):
-        """
-        returns a 3x3 rotation matrix based on the
-        provided axis and angle
-        """
-        axis = np.array(axis)
-        axis = axis / np.linalg.norm(axis)
-        a = np.cos(angle / 2.)
-        b, c, d = -axis*np.sin(angle / 2.)
-
-        R = np.array([[a*a + b*b - c*c - d*d, 2*(b*c - a*d), 2*(b*d + a*c)],
-                  [2*(b*c + a*d), a*a + c*c - b*b - d*d, 2*(c*d - a*b)],
-                  [2*(b*d - a*c), 2*(c*d + a*b), a*a + d*d - b*b - c*c]])
-
-        M = np.identity(4)
-        M[:3,:3] = R
-        if point is not None:
-            # rotation not around origin
-            point = np.array(point[:3], dtype=np.float64, copy=False)
-            M[:3,3] = point - np.dot(R, point)
-        return M
 
