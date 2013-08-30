@@ -31,14 +31,20 @@ class ConnectPoint(object):
         self.y[:3] = np.array([float(x) for x in line[7:10]])
         if len(line) == 12:
             try:
-                self.special = int(line[10])
-            except ValueError:
-                self.special = None
-            try:
-                self.symmetry = int(line[11])
+                self.symmetry = int(line[10])
             except ValueError:
                 self.symmetry = 1
-    
+            try:
+                self.special = int(line[11])
+            except ValueError:
+                self.special = None
+        self._normalize()
+
+    def _normalize(self):
+        """Normalize the y and z vectors"""
+        self.z[:3] = self.z[:3]/np.linalg.norm(self.z[:3])
+        self.y[:3] = self.y[:3]/np.linalg.norm(self.y[:3])
+
     def rotate(self, R):
         self.origin = np.dot(R, self.origin)
         self.y[:3] = np.dot(R[:3,:3], self.y[:3])
