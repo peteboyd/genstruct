@@ -28,7 +28,7 @@ class Build(object):
         self.periodic_origins = np.zeros((3,3))
         self.periodic_index = 0
 
-    def build_from_directives(self, directives):
+    def build_from_directives(self, directives, sbu_set):
         index_type = []
         self.reset()
         if self.options.debug_writing:
@@ -87,7 +87,7 @@ class Build(object):
                 # overlap check
                 if self.overlap(sbu2):
                     debug("overlap found")
-                    return
+                    return False
                 else:
                     # check for periodic boundaries
                     index_type.append(count)
@@ -97,16 +97,45 @@ class Build(object):
                     connect_point2.connected = True
                     connect_point2.sbu_bond = (sbu_ind1, connect_point1.identifier)
                     self.bonding_check()
-                if self._completed_structure():
+                if self._completed_structure(sbu_set):
                     # test for periodic overlaps.
-                    new_structure = Structure(self.options)
+                    name = self.obtain_structure_name()
+                    new_structure = Structure(self.options, name=name)
                     new_structure.from_build(self)
                     if new_structure.compute_overlap():
                         debug("overlap found in final structure")
                     new_structure.re_orient()
                     info("Structure Generated!")
-                    return
-        
+                    new_structure.write_cif()
+                    return True
+        return False
+       
+    def obtain_structure_name(self):
+        """Return a name which identifies the structure based
+        on topology and SBUs"""
+        mets = {}
+        orgs = {}
+        for i in self.sbus:
+            if i.is_metal:
+                mets[i.identifier] = 0
+            else:
+                orgs[i.identifier] = 0
+        metlist = mets.keys()
+        orglist = orgs.keys()
+        if len(metlist) < self.options.metal_sbu_per_structure:
+            actual = len(metlist)
+            makeup = self.options.metal_sbu_per_structure - actual
+            [metlist.append(metlist[0]) for i in makeup]
+        if len(orglist) < self.options.metal_sbu_per_structure:
+            actual = len(orglist)
+            makeup = self.options.organic_sbu_per_structure - actual
+            [orglist.append(orglist[0]) for i in makeup]
+
+        met_line = "_".join(["m%i"%(i) for i in sorted(metlist)])
+        org_line = "_".join(["o%i"%(i) for i in sorted(orglist)])
+        top = self.sbus[0].topology
+        return "_".join(["str", met_line, org_line, top]) 
+
     def bonding_check(self):
         """Evaluate the presence of bonds between existing SBUs"""
         bond_points = [(ind,cp) for ind, sbu in enumerate(self.sbus)
@@ -137,11 +166,14 @@ class Build(object):
                     cp1.sbu_bond = (ind2, cp2.identifier)
                     cp2.sbu_bond = (ind1, cp1.identifier)           
     
-    def _completed_structure(self):
+    def _completed_structure(self, sbu_set):
         # check to make sure all organic and metal groups are represented
         # in the structure
+        sbus = set([i.identifier for i in self.sbus])
+        compare = set([i.identifier for i in sbu_set])
         return (self.periodic_index == 3 and
-                all([cp.connected for sbu in self.sbus for cp in sbu.connect_points]))
+                all([cp.connected for sbu in self.sbus for cp in sbu.connect_points])
+                and sbus == compare)
                    
     def periodic_shift(self, vector):
         proj_vect = np.dot(vector, self.periodic_vectors.inverse)

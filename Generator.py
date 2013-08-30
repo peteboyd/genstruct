@@ -49,7 +49,7 @@ class Generate(object):
         for k in self._yield_bonding_sbus(sbu, set(sbus), 
                 p=[0 for i in range(self.options.structure_sbu_length)]):
             yield [sbu] + k
-    
+        
     def flatten(self, s):
         """Returns a flattened list"""
         if s == []:

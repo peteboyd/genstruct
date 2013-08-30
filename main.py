@@ -16,7 +16,8 @@ from Generator import Generate
 from SecondaryBuildingUnit import SBU
 from Builder import Build
 from CSV import CSV
-from CreateInput import SBUFileRead 
+from CreateInput import SBUFileRead
+from random import random
 import os
 
 class JobHandler(object):
@@ -97,6 +98,7 @@ class JobHandler(object):
 
         # generate the MOFs.
         for combo in combinations:
+            gen_counter = 0
             build = Build(self.options)
             # NOTE: problem if two SBUs have the same identifier (eg. Cu paddlewheel and index2)
             info("Trying %s"%(', '.join([i.name for i in combo])))
@@ -107,7 +109,15 @@ class JobHandler(object):
             for iter in range(self.options.max_trials):
                 d = directives.next()
                 # pass the directive to a MOF building algorithm
-                build.build_from_directives(d)
+                gen = build.build_from_directives(d, combo)
+                gen_counter = gen_counter + 1 if gen else gen_counter
+                if gen_counter >= self.options.max_structures:
+                    break
+                # random increment if many trials have passed
+
+                if iter >= (self.options.max_trials/2):
+                    [directives.next() for i in range(random(
+                                    self.options.max_trials/3))]
 
     def _sbu_report(self):
         """Compute the surface areas and report them to a .csv file."""
