@@ -22,7 +22,7 @@ class Atom(object):
         self.neighbours = []
     
     def scaled_pos(self, inv_cell): 
-        return np.dot(inv_cell, self.coordinates[:3])
+        return np.dot(self.coordinates[:3], inv_cell)
 
     def in_cell_scaled(self, inv_cell):
         return np.array([i%1 for i in self.scaled_pos(inv_cell)])

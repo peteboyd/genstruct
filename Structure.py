@@ -4,6 +4,7 @@ import itertools
 from scipy.spatial import distance
 from LinAlg import LinAlg, RAD2DEG
 from element_properties import Radii
+from CIFer import CIF
 
 class Structure(object):
     """Structure class contains atom info for MOF."""
@@ -57,6 +58,28 @@ class Structure(object):
                 self.bonds.update({tuple(sorted((atom.index, 
                                            bond_atom.index))): "S"})
 
+    def _compute_bond_info(self):
+        """Update bonds to contain bond type, distances, and min img
+        shift."""
+        supercells = np.array(list(itertools.product((-1, 0, 1), repeat=3)))
+        unit_repr = np.array([5,5,5], dtype=int)
+        for (at1, at2), val in self.bonds.items():
+            atom1 = self.atoms[at1]
+            atom2 = self.atoms[at2]
+            fcoords = atom2.scaled_pos(self.cell.inverse) + supercells
+            coords = []
+            for j in fcoords:
+                coords.append(np.dot(j, self.cell.lattice))
+            coords = np.array(coords)
+            dists = distance.cdist([atom1.coordinates[:3]], coords)
+            dists = dists[0].tolist()
+            image = dists.index(min(dists))
+            dist = min(dists)
+            sym = '.' if all([i==0 for i in supercells[image]]) else \
+                    "1_%i%i%i"%(tuple(np.array(supercells[image],dtype=int) +
+                                      unit_repr))
+            self.bonds[(at1, at2)] = (val, dist, sym) 
+
     def compute_overlap(self):
         """Determines if there is atomistic overlap. Includes periodic
         boundary considerations."""
@@ -82,8 +105,7 @@ class Structure(object):
         for at in atoms:
             scaled = at.scaled_pos(self.cell.inverse)
             shift = np.around(sc_atom - scaled)
-            shifted_coords.append(np.dot(scaled + shift, self.cell.lattice))
-
+            shifted_coords.append(np.dot((scaled+shift), self.cell.lattice))
         return shifted_coords
 
     def detect_symmetry(self):
@@ -91,16 +113,83 @@ class Structure(object):
 
     def re_orient(self):
         """Adjusts cell vectors to lie in the standard directions."""
-        frac_coords = [i.in_cell(self.cell.lattice, self.cell.inverse) for i in
-                      self.atoms]
+        frac_coords = [i.in_cell_scaled(self.cell.inverse) 
+                        for i in self.atoms]
         self.cell.reorient_lattice()
         for id, atom in enumerate(self.atoms):
-            atom.coordinates[:3] = np.dot(frac_coords[id], self.cell.lattice)
+            atom.coordinates[:3] = np.dot(frac_coords[id],
+                                          self.cell.lattice)
 
-    def write_to_cif(self):
+    def write_cif(self):
         """Write structure information to a cif file."""
-        pass
+        self._compute_bond_info()
+        c = CIF(name=self.name)
+        labels = []
+        # data block
+        c.add_data("data", data_=self.name)
+        c.add_data("data", _audit_creation_date=
+                            CIF.label(c.get_time()))
+        c.add_data("data", _audit_creation_method=
+                            CIF.label("Genstruct v.%4.3f"%(
+                                    self.options.version)))
 
+        # sym block
+        c.add_data("sym", _symmetry_space_group_name_H_M=
+                            CIF.label("P1"))
+        c.add_data("sym", _symmetry_Int_Tables_number=
+                            CIF.label("1"))
+        c.add_data("sym", _symmetry_cell_setting=
+                            CIF.label("triclinic"))
+
+        # sym loop block
+        c.add_data("sym_loop", _symmetry_equiv_pos_as_xyz=
+                            CIF.label("'x, y, z'"))
+
+        # cell block
+        c.add_data("cell", _cell_length_a=CIF.cell_length_a(self.cell.a))
+        c.add_data("cell", _cell_length_b=CIF.cell_length_a(self.cell.b))
+        c.add_data("cell", _cell_length_c=CIF.cell_length_a(self.cell.c))
+        c.add_data("cell", _cell_angle_alpha=CIF.cell_angle_alpha(self.cell.alpha))
+        c.add_data("cell", _cell_angle_beta=CIF.cell_angle_beta(self.cell.beta))
+        c.add_data("cell", _cell_angle_gamma=CIF.cell_angle_gamma(self.cell.gamma))
+
+        # atom block
+        element_counter = {}
+        for atom in self.atoms:
+            label = c.get_element_label(atom.element)
+            labels.append(label)
+            c.add_data("atoms", _atom_site_label=
+                                    CIF.atom_site_label(label))
+            c.add_data("atoms", _atom_site_type_symbol=
+                                    CIF.atom_site_type_symbol(atom.element))
+            c.add_data("atoms", _atom_site_description=
+                                    CIF.atom_site_description(atom.force_field_type))
+            fc = atom.scaled_pos(self.cell.inverse)
+            c.add_data("atoms", _atom_site_fract_x=
+                                    CIF.atom_site_fract_x(fc[0]))
+            c.add_data("atoms", _atom_site_fract_y=
+                                    CIF.atom_site_fract_y(fc[1]))
+            c.add_data("atoms", _atom_site_fract_z=
+                                    CIF.atom_site_fract_z(fc[2]))
+
+        # bond block
+        for (at1, at2), (type, dist, sym) in self.bonds.items():
+            label1 = labels[at1]
+            label2 = labels[at2]
+            c.add_data("bonds", _geom_bond_atom_site_label_1=
+                                        CIF.geom_bond_atom_site_label_1(label1))
+            c.add_data("bonds", _geom_bond_atom_site_label_2=
+                                        CIF.geom_bond_atom_site_label_1(label2))
+            c.add_data("bonds", _geom_bond_distance=
+                                        CIF.geom_bond_distance(dist))
+            c.add_data("bonds", _geom_bond_site_symmetry_2=
+                                        CIF.geom_bond_site_symmetry_2(sym))
+            c.add_data("bonds", _ccdc_geom_bond_type=
+                                        CIF.ccdc_geom_bond_type(type))
+
+        file = open("%s.cif"%self.name, "w")
+        file.writelines(str(c))
+        file.close()
 
 class Cell(object):
     """contains periodic vectors for the structure."""
@@ -151,8 +240,12 @@ class Cell(object):
         c_x = c*cos_be
         c_y = c*(cos_al - cos_ga*cos_be)/sin_ga
         c_z = np.sqrt(c**2 - c_x**2 - c_y**2)
-        self.lattice = np.array([[a, 0., 0.],[b*cos_ga, b*sin_ga, 0.],
-                                 [c_x, c_y, c_z]])
+        self.lattice = np.array([[a, 0., 0.],
+                                [b*cos_ga, b*sin_ga, 0.],
+                                [c_x, c_y, c_z]])
+        #print np.linalg.det(new_lattice)
+        #print np.linalg.det(self.lattice)
+        del self._ilattice # re-compute the inverse
 
     @property
     def a(self):

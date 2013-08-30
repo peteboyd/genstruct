@@ -12,8 +12,9 @@ from ast import literal_eval
 from logging import info, debug, warning, error, critical
 
 class Options(object):
-    
+    version = 3.001
     def __init__(self):
+
         self._command_options()
         self.job = ConfigParser.SafeConfigParser()
         self._set_paths()
@@ -113,7 +114,8 @@ class Options(object):
         integers = ['organic_sbu_per_structure',
                     'metal_sbu_per_structure',
                     'structure_sbu_length',
-                    'max_trials']
+                    'max_trials',
+                    'max_structures']
         lists = ['topologies', 'sbu_files', 'organic_sbus',
                  'metal_sbus']
         tuple_of_tuples = ['sbu_combinations']
