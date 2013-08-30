@@ -75,7 +75,7 @@ class InputSBU(object):
         connectivity points. Namely, Xe, Y, and Rn. Ac series
         elements are replacement Xe atoms for special bonding purposes.
         """
-        special = []
+        special, remove = [], []
         connect_index = 0
         for ind, atom in enumerate(self.mol):
             N = atom.atomicnum
@@ -97,10 +97,14 @@ class InputSBU(object):
                         bond_vector = "%12.4f %8.4f %8.4f"%(x, y, z)
                     else:
                         neighbour.SetFormalCharge(connect_index)
+                        id = neighbour.GetIdx()
 
                 con_line += "".join([X, bond_vector, net_vector, "\n"])
                 self.update(connectivity=con_line)
-                self._remove_atoms(atom.OBAtom, net_atom, bond_atom)
+                remove.append(atom.OBAtom)
+                remove.append(net_atom)
+                remove.append(bond_atom)
+        self._remove_atoms(*remove)
 
         # include special considerations
         for (i, spec) in special:
@@ -121,7 +125,7 @@ class InputSBU(object):
                     element, self._get_ff_type(atom), atom.coords[0],
                     atom.coords[1], atom.coords[2])
             self.update(atomic_info=coordlines)
-            if atom.formalcharge != 0:
+            if atom.OBAtom.GetFormalCharge() != 0:
                 conn_atom = str(atom.formalcharge) + "C"
                 order = "S" # currently set to a single bond.
                 tableline = "%4i%4s%4s\n"%(atom.idx-1, conn_atom, order)
@@ -195,8 +199,8 @@ class SBUFileRead(object):
                 s.set_topology(self.options.topologies[0])
             else:
                 s.set_topology("None")
-            s.get_connect_info()
             s.set_uff()
+            s.get_connect_info()
             s.get_atom_info()
             s.get_bond_info()
 
