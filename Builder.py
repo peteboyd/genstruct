@@ -72,7 +72,7 @@ class Build(object):
                 
                 if self.options.debug_writing:
                     self.debug_xyz(sbu2)
-                    
+             
                 self.rotation_z(sbu1, -connect_point1,
                                 sbu2, connect_point2)
                 
@@ -286,17 +286,25 @@ class Build(object):
         
     def rotation_z(self, sbu1, cp1, sbu2, cp2):
         # first rotation
+        angle = LinAlg.calc_angle(cp1.z, cp2.z)
+        if np.allclose(angle, 0.):
+            return
         cp = np.cross(cp1.z[:3], cp2.z[:3])
         axis = cp/np.linalg.norm(cp)
-        angle = LinAlg.calc_angle(cp1.z, cp2.z)
         R = LinAlg.rotation_matrix(axis, angle, point=cp2.origin[:3])
         sbu2.rotate(R)
         
     def rotation_y(self, sbu1, cp1, sbu2, cp2):
         # second
-        cp = np.cross(cp1.y[:3], cp2.y[:3])
+        angle = LinAlg.calc_angle(cp2.y, cp1.y)
+        cp = cp1.z[:3] 
+        if np.allclose(angle, 0.):
+            return
         axis = cp/np.linalg.norm(cp)
-        angle = LinAlg.calc_angle(cp1.y, cp2.y)
         R = LinAlg.rotation_matrix(axis, angle, point=cp2.origin[:3])
+        test_vector = np.dot(R[:3,:3], cp2.y[:3])
+        if not np.allclose(LinAlg.calc_angle(test_vector, cp1.y), 0., atol=0.001):
+            R = LinAlg.rotation_matrix(-axis, angle, point=cp2.origin[:3])
+        test_vector = np.dot(R[:3,:3], cp2.y[:3])
         sbu2.rotate(R)
 

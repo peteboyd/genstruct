@@ -17,7 +17,7 @@ from SecondaryBuildingUnit import SBU
 from Builder import Build
 from CSV import CSV
 from CreateInput import SBUFileRead
-from random import random
+from random import randint
 import os
 
 class JobHandler(object):
@@ -106,8 +106,12 @@ class JobHandler(object):
                 directives = run.generate_build_directives(None, combo)
             elif self.options.build_directives:
                 directives = run.build_directives_from_options(build)
+
             for iter in range(self.options.max_trials):
-                d = directives.next()
+                try:
+                    d = directives.next()
+                except StopIteration:
+                    break
                 # pass the directive to a MOF building algorithm
                 gen = build.build_from_directives(d, combo)
                 gen_counter = gen_counter + 1 if gen else gen_counter
@@ -116,7 +120,7 @@ class JobHandler(object):
                 # random increment if many trials have passed
 
                 if iter >= (self.options.max_trials/2):
-                    [directives.next() for i in range(random(
+                    [directives.next() for i in range(randint(0,
                                     self.options.max_trials/3))]
 
     def _sbu_report(self):
