@@ -10,11 +10,14 @@ class LinAlg(object):
         """Returns the angle in radians between vectors 'v1' and 'v2'"""
         v1_u = v1[:3] / np.linalg.norm(v1[:3])
         v2_u = v2[:3] / np.linalg.norm(v2[:3])
-        if (v1_u == v2_u).all():
+        #Note: using the test (v1_u==v2_u).all(), which returns
+        # true if all values of v1_u are equal to v2_u fails here.
+        # there must be a rounding error.
+        if np.allclose(v1_u, v2_u): 
             return 0.0
         angle = np.arccos(np.dot(v1_u, v2_u))
         if np.isnan(angle):
-            if (v1_u == v2_u).all():
+            if np.allclose(v1_u, v2_u):
                 return 0.0
             else:
                 return np.pi

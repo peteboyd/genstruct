@@ -169,8 +169,10 @@ class Build(object):
     def _completed_structure(self, sbu_set):
         # check to make sure all organic and metal groups are represented
         # in the structure
-        sbus = set([i.identifier for i in self.sbus])
-        compare = set([i.identifier for i in sbu_set])
+        sbus = list(set([i.identifier for i in self.sbus if i.is_metal])) +\
+               list(set([i.identifier for i in self.sbus if not i.is_metal]))
+        compare = list(set([i.identifier for i in sbu_set if i.is_metal]))+\
+                  list(set([i.identifier for i in sbu_set if not i.is_metal]))
         return (self.periodic_index == 3 and
                 all([cp.connected for sbu in self.sbus for cp in sbu.connect_points])
                 and sbus == compare)
