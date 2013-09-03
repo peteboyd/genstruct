@@ -272,10 +272,10 @@ class Build(object):
         if cp1.special != cp2.constraint or cp2.special != cp1.constraint:
             return False
         # check if vectors are aligned
-        if not np.allclose(np.dot(cp1.z[:3], cp2.z[:3]), -1., atol=0.05):
+        if not np.allclose(np.dot(cp1.z[:3], cp2.z[:3]), -1., atol=0.005):
             return False
         # (anti)parallel alignment vectors
-        if not np.allclose(abs(np.dot(cp2.y[:3], cp2.y[:3])), 1., atol=0.05):
+        if not np.allclose(abs(np.dot(cp1.y[:3], cp2.y[:3])), 1., atol=0.005):
             return False
         return True
         
