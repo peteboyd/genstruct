@@ -225,11 +225,14 @@ class Build(object):
             # the way the distance matrix is set up, intra-sbu distance
             # checks are not considered. This removes any need to ignore
             # bonded atoms until the very end.
-            dist_mat = distance.cdist(coords1, coords2)
-            for (atom1, atom2), dist in np.ndenumerate(dist_mat):
-                elem1, elem2 = sbu.atoms[atom1].element, o_sbu.atoms[atom2].element
-                if (Radii[elem1] + Radii[elem2]) * self.options.overlap_tolerance > dist:
-                    return True
+            if not coords1.any():
+                return
+            if coords2.any():
+                dist_mat = distance.cdist(coords1, coords2)
+                for (atom1, atom2), dist in np.ndenumerate(dist_mat):
+                    elem1, elem2 = sbu.atoms[atom1].element, o_sbu.atoms[atom2].element
+                    if (Radii[elem1] + Radii[elem2]) * self.options.overlap_tolerance > dist:
+                        return True
         return False
     
     def _valid_periodic_vector(self, vector):
