@@ -294,7 +294,10 @@ class Build(object):
         angle = LinAlg.calc_angle(cp1.z, cp2.z)
         if np.allclose(angle, 0.):
             return
-        cp = np.cross(cp1.z[:3], cp2.z[:3])
+        if np.allclose(angle, np.pi):
+            cp = cp2.y[:3]
+        else:
+            cp = np.cross(cp1.z[:3], cp2.z[:3])
         axis = cp/np.linalg.norm(cp)
         R = LinAlg.rotation_matrix(axis, angle, point=cp2.origin[:3])
         sbu2.rotate(R)

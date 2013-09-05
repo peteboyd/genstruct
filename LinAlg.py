@@ -15,6 +15,8 @@ class LinAlg(object):
         # there must be a rounding error.
         if np.allclose(v1_u, v2_u): 
             return 0.0
+        elif np.allclose(v1_u, -v2_u): 
+            return np.pi 
         angle = np.arccos(np.dot(v1_u, v2_u))
         if np.isnan(angle):
             if np.allclose(v1_u, v2_u):
