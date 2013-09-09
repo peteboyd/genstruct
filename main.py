@@ -101,6 +101,8 @@ class JobHandler(object):
             gen_counter = 0
             build = Build(self.options)
             # NOTE: problem if two SBUs have the same identifier (eg. Cu paddlewheel and index2)
+            extra = [j for i in combo for j in i.children]
+            combo = tuple(list(combo) + extra)
             info("Trying %s"%(', '.join([i.name for i in combo])))
             if self.options.exhaustive:
                 directives = run.generate_build_directives(None, combo)
@@ -183,7 +185,16 @@ class JobHandler(object):
             sbu = SBU()
             sbu.from_config(raw_sbu, sbu_config)
             self.sbu_pool.append(sbu)
-            
+        
+        rem = []
+        for id, sbu in enumerate(self.sbu_pool):
+            if sbu.parent:
+                sbu_append = [s for s in self.sbu_pool if s.name == sbu.parent][0]
+                sbu_append.children.append(sbu)
+                rem.append(id)
+        for x in reversed(sorted(rem)):
+            self.sbu_pool.pop(x)
+
     def _separate_topologies(self):
         for sbu in self.sbu_pool:
             self._topologies.setdefault(sbu.topology, []).append(sbu)
