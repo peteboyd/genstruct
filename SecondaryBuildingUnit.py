@@ -62,12 +62,12 @@ class SBU(object):
                 if "c" in bond[0].lower():
                     connect_ind = int(bond[0].lower().strip('c'))
                     atom_ind = int(bond[1])
-                    self.atoms[atom_ind].sbu_bridge = connect_ind
+                    self.atoms[atom_ind].sbu_bridge.append(connect_ind)
                 elif "c" in bond[1].lower():
                     # subtract 1 since the input file starts at 1
                     connect_ind = int(bond[1].lower().strip('c'))
                     atom_ind = int(bond[0])
-                    self.atoms[atom_ind].sbu_bridge = connect_ind
+                    self.atoms[atom_ind].sbu_bridge.append(connect_ind)
                 else:
                     b = tuple(sorted([int(bond[0]), int(bond[1])]))
                     self.bonds[b] = bond[2]
@@ -236,7 +236,11 @@ class SBU(object):
         """Return an .xyz format of the SBU."""
         line = ""
         for cp in self.connect_points:
-            line += "H %12.5f %12.5f %12.5f "%(tuple(cp.origin[:3]))
+            if cp.connected:
+                atom = "He"
+            else:
+                atom = "H"
+            line += "%s %12.5f %12.5f %12.5f "%(tuple([atom] + cp.origin[:3].tolist()))
             line += "atom_vector %12.5f %12.5f %12.5f "%(tuple(cp.z[:3]))
             line += "atom_vector %12.5f %12.5f %12.5f\n"%(tuple(cp.y[:3]))
             

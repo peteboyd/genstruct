@@ -165,6 +165,8 @@ class Build(object):
                     cp1.connected, cp2.connected = True, True
                     cp1.sbu_bond = (ind2, cp2.identifier)
                     cp2.sbu_bond = (ind1, cp1.identifier)           
+                    if self.periodic_index == 3:
+                        self.bonding_check()
     
     def _completed_structure(self, sbu_set):
         # check to make sure all organic and metal groups are represented

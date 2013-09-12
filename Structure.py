@@ -43,8 +43,8 @@ class Structure(object):
 
     def compute_inter_sbu_bonding(self, sbu1, cp1_id, sbu2, cp2_id):
         # find out which atoms are involved in inter-sbu bonding
-        atoms1 = [i for i in sbu1.atoms if i.sbu_bridge == cp1_id]
-        atoms2 = [j for j in sbu2.atoms if j.sbu_bridge == cp2_id]
+        atoms1 = [i for i in sbu1.atoms if cp1_id in i.sbu_bridge]
+        atoms2 = [j for j in sbu2.atoms if cp2_id in j.sbu_bridge]
         # measure minimum distances between atoms to get the 
         # correct bonding.
         base_atoms = atoms1 if len(atoms1) >= len(atoms2) else atoms2
@@ -243,8 +243,6 @@ class Cell(object):
         self.lattice = np.array([[a, 0., 0.],
                                 [b*cos_ga, b*sin_ga, 0.],
                                 [c_x, c_y, c_z]])
-        #print np.linalg.det(new_lattice)
-        #print np.linalg.det(self.lattice)
         del self._ilattice # re-compute the inverse
 
     @property

@@ -100,7 +100,6 @@ class JobHandler(object):
         for combo in combinations:
             gen_counter = 0
             build = Build(self.options)
-            # NOTE: problem if two SBUs have the same identifier (eg. Cu paddlewheel and index2)
             extra = [j for i in combo for j in i.children]
             combo = tuple(list(combo) + extra)
             info("Trying %s"%(', '.join([i.name for i in combo])))
@@ -114,6 +113,16 @@ class JobHandler(object):
                     d = directives.next()
                 except StopIteration:
                     break
+                #print_list = []
+                #for i in d:
+                #    if isinstance(i, SBU):
+                #        print_list.append(i.name)
+                #    elif isinstance(i, tuple):
+                #        sub_list = [i[0]]
+                #        sub_list.append(tuple([i[1][0].name,i[1][1].identifier]))
+                #        print_list.append(sub_list)
+                #print print_list
+                #continue
                 # pass the directive to a MOF building algorithm
                 gen = build.build_from_directives(d, combo)
                 gen_counter = gen_counter + 1 if gen else gen_counter
