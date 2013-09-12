@@ -16,7 +16,7 @@ class Atom(object):
         self.sbu_order = None
         self.sbu_metal = False
         # is this an atom that connects to another SBU?
-        self.sbu_bridge = None
+        self.sbu_bridge = [] 
         self.force_field_type = None
         self.coordinates = null.copy()
         self.neighbours = []
