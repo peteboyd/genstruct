@@ -247,14 +247,15 @@ class Build(object):
         nvec = vector/np.linalg.norm(vector)
         # check if the vector is a linear combination
         # of the existing vectors
+        cell_tol = self.options.cell_angle_cutoff
         for latt_vec in self.periodic_vectors.nlattice[:self.periodic_index]:
-            if np.allclose(np.dot(latt_vec, nvec), 1., atol=0.1):
+            if np.allclose(np.dot(latt_vec, nvec), 1., atol=cell_tol):
                 return False
         if self.periodic_index == 2:
             # check for co-planarity
             norm_test = np.dot(nvec, np.cross(self.periodic_vectors.nlattice[0],
                                      self.periodic_vectors.nlattice[1]))
-            if np.allclose(norm_test, 0., atol=0.1):
+            if np.allclose(norm_test, 0., atol=cell_tol):
                 return False
         return True
 

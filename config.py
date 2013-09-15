@@ -111,7 +111,8 @@ class Options(object):
                     'gen_single_bonding_set', 'calc_sbu_surface_area',
                     'calc_max_sbu_span', 'create_sbu_input_files']
         floats = ['distance_tolerance', 'overlap_tolerance',
-                  'bond_angle_tolerance']
+                  'bond_angle_tolerance',
+                  'cell_angle_cutoff']
         integers = ['organic_sbu_per_structure',
                     'metal_sbu_per_structure',
                     'structure_sbu_length',
