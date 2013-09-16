@@ -9,10 +9,18 @@ class CIF(object):
         self._headings = {}
         self._element_labels = {}
         self.non_loops = ["data", "cell", "sym"]
+        self.block_order = ["data", "sym", "sym_loop", "cell", "atoms", "bonds"]
 
     def get_time(self):
         t = date.today()
         return t.strftime("%A %d %B %Y")
+
+    def insert_block_order(self, name, index=None):
+        """Adds a block to the cif file in a specified order"""
+        if index is None:
+            index = len(self.block_order)
+        self.block_order = self.block_order[:index] + [name] + \
+                            self.block_order[index:]
 
     def add_data(self, block, **kwargs):
         self._headings.setdefault(block, [])
@@ -32,9 +40,8 @@ class CIF(object):
         return el + str(self._element_labels[el])
 
     def __str__(self):
-        block_order = ["data", "sym", "sym_loop", "cell", "atoms", "bonds"]
         line = ""
-        for block in block_order:
+        for block in self.block_order:
             heads = self._headings[block]
             if block in self.non_loops: 
                 vals = zip([CIF.label(i) for i in heads], [self._data[i] for i in heads])
@@ -97,6 +104,9 @@ class CIF(object):
     @staticmethod
     def cell_angle_gamma(x):
         return "%-7.4f "%(x)
+    @staticmethod
+    def atom_site_fragment(x):
+        return "%-4i "%(x)
 
     @staticmethod
     def label(x):
