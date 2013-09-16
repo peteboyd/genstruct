@@ -14,11 +14,8 @@ class Structure(object):
         self.options = options
         self.cell = Cell()
         self.atoms = []
-        self.bonds = {} 
-        # re-orient the cell
-        # shift all to within the periodic boundaries
-        # run symmetry finding on it.
-        # write to cif file.
+        self.bonds = {}
+        self.fragments = [] 
 
     def from_build(self, build_obj):
         """Build structure up from the builder object"""
@@ -28,6 +25,7 @@ class Structure(object):
         index_count = 0
         for order, sbu in enumerate(build_obj.sbus):
             sbu.update_atoms(index_count, order)
+            self.fragments.append((sbu.name, order))
             self.atoms += sbu.atoms
             if any([i in self.bonds.keys() for i in sbu.bonds.keys()]):
                 warning("Two bonds with the same indices found when forming"+
@@ -124,6 +122,7 @@ class Structure(object):
         """Write structure information to a cif file."""
         self._compute_bond_info()
         c = CIF(name=self.name)
+        c.insert_block_order("fragment", 4)
         labels = []
         # data block
         c.add_data("data", data_=self.name)
@@ -147,12 +146,15 @@ class Structure(object):
 
         # cell block
         c.add_data("cell", _cell_length_a=CIF.cell_length_a(self.cell.a))
-        c.add_data("cell", _cell_length_b=CIF.cell_length_a(self.cell.b))
-        c.add_data("cell", _cell_length_c=CIF.cell_length_a(self.cell.c))
+        c.add_data("cell", _cell_length_b=CIF.cell_length_b(self.cell.b))
+        c.add_data("cell", _cell_length_c=CIF.cell_length_c(self.cell.c))
         c.add_data("cell", _cell_angle_alpha=CIF.cell_angle_alpha(self.cell.alpha))
         c.add_data("cell", _cell_angle_beta=CIF.cell_angle_beta(self.cell.beta))
         c.add_data("cell", _cell_angle_gamma=CIF.cell_angle_gamma(self.cell.gamma))
 
+        for name, order in self.fragments:
+            c.add_data("fragment", _chemical_identifier=CIF.label(order),
+                                   _chemical_name=CIF.label(name))
         # atom block
         element_counter = {}
         for atom in self.atoms:
@@ -164,6 +166,7 @@ class Structure(object):
                                     CIF.atom_site_type_symbol(atom.element))
             c.add_data("atoms", _atom_site_description=
                                     CIF.atom_site_description(atom.force_field_type))
+            c.add_data("atoms", _atom_site_fragment=CIF.atom_site_fragment(atom.sbu_order))
             fc = atom.scaled_pos(self.cell.inverse)
             c.add_data("atoms", _atom_site_fract_x=
                                     CIF.atom_site_fract_x(fc[0]))
@@ -179,7 +182,7 @@ class Structure(object):
             c.add_data("bonds", _geom_bond_atom_site_label_1=
                                         CIF.geom_bond_atom_site_label_1(label1))
             c.add_data("bonds", _geom_bond_atom_site_label_2=
-                                        CIF.geom_bond_atom_site_label_1(label2))
+                                        CIF.geom_bond_atom_site_label_2(label2))
             c.add_data("bonds", _geom_bond_distance=
                                         CIF.geom_bond_distance(dist))
             c.add_data("bonds", _geom_bond_site_symmetry_2=
