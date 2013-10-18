@@ -97,6 +97,7 @@ class Build(object):
                     connect_point2.connected = True
                     connect_point2.sbu_bond = (sbu_ind1, connect_point1.identifier)
                     self.bonding_check()
+
                 if self._completed_structure(sbu_set):
                     # test for periodic overlaps.
                     name = self.obtain_structure_name()
@@ -315,8 +316,6 @@ class Build(object):
         axis = cp/np.linalg.norm(cp)
         R = LinAlg.rotation_matrix(axis, angle, point=cp2.origin[:3])
         test_vector = np.dot(R[:3,:3], cp2.y[:3])
-        if not np.allclose(LinAlg.calc_angle(test_vector, cp1.y), 0., atol=0.001):
+        if not np.allclose(LinAlg.calc_angle(test_vector, cp1.y[:3]), 0., atol=0.001):
             R = LinAlg.rotation_matrix(-axis, angle, point=cp2.origin[:3])
-        test_vector = np.dot(R[:3,:3], cp2.y[:3])
         sbu2.rotate(R)
-
