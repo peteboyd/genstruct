@@ -16,6 +16,8 @@ class Structure(object):
         self.atoms = []
         self.bonds = {}
         self.fragments = [] 
+        self.build_directives = None
+        self.charge = 0
 
     def from_build(self, build_obj):
         """Build structure up from the builder object"""
@@ -25,6 +27,7 @@ class Structure(object):
         index_count = 0
         for order, sbu in enumerate(build_obj.sbus):
             sbu.update_atoms(index_count, order)
+            self.charge += sbu.charge
             self.fragments.append((sbu.name, order))
             self.atoms += sbu.atoms
             if any([i in self.bonds.keys() for i in sbu.bonds.keys()]):
@@ -131,6 +134,9 @@ class Structure(object):
         c.add_data("data", _audit_creation_method=
                             CIF.label("Genstruct v.%4.3f"%(
                                     self.options.version)))
+        if self.charge:
+            c.add_data("data", _chemical_properties_physical=
+                               "net charge is %i"%(self.charge))
 
         # sym block
         c.add_data("sym", _symmetry_space_group_name_H_M=
