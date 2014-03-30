@@ -188,10 +188,10 @@ class SBUFileRead(object):
     def read_sbu_files(self):
         files = self.options.sbu_files if self.options.sbu_files else os.listdir('.')
         files = [file for file in files if 
-                 '.'+self.options.mol_extension == file[-4:]]
+                 '.'+self.options.file_extension == file[-4:]]
         for f in files:
             info("Reading: %s"%(f))
-            s = InputSBU(os.path.basename(f), self.options.mol_extension)
+            s = InputSBU(os.path.basename(f), self.options.file_extension)
             s.get_index()
             s.get_metal()
             s.special()

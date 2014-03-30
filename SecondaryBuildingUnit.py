@@ -17,6 +17,7 @@ class SBU(object):
         self.identifier = 0
         self.index = 0
         self.topology = None
+        self.charge = 0
         self.parent = None
         self.is_metal = False
         self.atoms = []
@@ -30,6 +31,11 @@ class SBU(object):
         
         self.name = section
         self.identifier = cfgdic.getint(section, 'index')
+        try:
+            self.charge = cfgdic.getint(section, 'charge')
+        except ConfigParser.NoOptionError:
+            # charge not specified in the input file.
+            pass
         self.topology = cfgdic.get(section, 'topology')
         self.is_metal = cfgdic.getboolean(section, 'metal')
         if cfgdic.has_option(section, 'parent'):

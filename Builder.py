@@ -106,6 +106,7 @@ class Build(object):
                     if new_structure.compute_overlap():
                         debug("overlap found in final structure")
                     new_structure.re_orient()
+                    new_structure.build_directives = [directives[i] for i in index_type]
                     info("Structure Generated!")
                     new_structure.write_cif()
                     return True
