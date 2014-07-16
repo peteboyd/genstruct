@@ -32,8 +32,19 @@ class Generate(object):
     def _valid_sbu_combination(self, sbu_set):
         """Currently only checks if there is the correct number of metal 
         SBUs in the combination."""
-        return len([i for i in sbu_set if i.is_metal]) == \
+        # check if all the special bonds can be satisfied
+        constraints = []
+        specials = []
+        for sbu in sbu_set:
+            for cp in sbu.connect_points:
+                if cp.special:
+                    specials.append(cp.special)
+                if cp.constraint:
+                    constraints.append(cp.constraint)
+        condition1 = set(specials) == set(constraints)
+        condition2 = len([i for i in sbu_set if i.is_metal]) == \
                 self.options.metal_sbu_per_structure
+        return condition1 and condition2
 
         
     def generate_build_directives(self, sbu, sbus):
