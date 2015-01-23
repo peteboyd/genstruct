@@ -179,7 +179,7 @@ class Build(object):
                   list(set([i.identifier for i in sbu_set if not i.is_metal]))
         return (self.periodic_index == 3 and
                 all([cp.connected for sbu in self.sbus for cp in sbu.connect_points])
-                and sbus == compare)
+                and sorted(sbus) == sorted(compare))
                    
     def periodic_shift(self, vector):
         proj_vect = np.dot(vector, self.periodic_vectors.inverse)

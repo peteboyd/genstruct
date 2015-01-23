@@ -35,16 +35,30 @@ class Generate(object):
         # check if all the special bonds can be satisfied
         constraints = []
         specials = []
+        none_const = {}
+        none_spec = {}
         for sbu in sbu_set:
             for cp in sbu.connect_points:
                 if cp.special:
                     specials.append(cp.special)
                 if cp.constraint:
                     constraints.append(cp.constraint)
+                if cp.constraint is None:
+                    none_const[(sbu.name, sbu.is_metal)] = cp.identifier
+                if cp.special is None:
+                    none_spec[(sbu.name, sbu.is_metal)] = cp.identifier
+
         condition1 = set(specials) == set(constraints)
         condition2 = len([i for i in sbu_set if i.is_metal]) == \
                 self.options.metal_sbu_per_structure
-        return condition1 and condition2
+
+        condition3 = False
+        for sbu, met in none_spec.keys():
+            for sbu2, met2 in none_const.keys():
+                if met != met2:
+                    condition3 = True
+                    break
+        return (condition1 and condition2 and condition3)
 
         
     def generate_build_directives(self, sbu, sbus):
@@ -53,8 +67,9 @@ class Generate(object):
         # insert metal first
         if sbu is None:
             # chose a metal (at random, if more than one)
+            #NB the _yield_bonding_sbus recursion takes too long for the met7 Zr SBU. This is likely
+            # due to the 12 connection sites it possesses.
             sbu = choice([x for x in sbus if x.is_metal])
-        
         # expand the current SBU's bonds and establish possible SBU bondings
         # generate exaustive list of sbu combinations.
         for k in self._yield_bonding_sbus(sbu, set(sbus), 
@@ -87,8 +102,9 @@ class Generate(object):
         ncps = len(sbu.connect_points)
         sbu_repr = list(itertools.product([sbu], sbu.connect_points))
 
+        # This becomes combinatorially intractable for met7 with 12 connection points
         bond_iter = self.roundrobin(*[itertools.product([s], s.connect_points)
-                                    for s in sbus])
+                                    for s in sbus if s.name != sbu.name])
         # don't like how this iterates, but will do for now.
         all_bonds = itertools.tee(bond_iter, ncps)
         for bond_set in itertools.product(*all_bonds):
@@ -117,7 +133,6 @@ class Generate(object):
             index += 1
             #TODO(pboyd): Probably ignore bonding with the metal-metal cases, since they will likely always form a periodic boundary right at the beginning of the Build.
             for iterator in self._gen_bonding_sbus(sbu, sbus, index-1):
-
                 p[index-1] = list(iterator)
                 q = self.flatten(p)[index-1][1][0]
                 for s in self._yield_bonding_sbus(q, sbus, index, p):
