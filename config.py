@@ -109,10 +109,10 @@ class Options(object):
         # known booleans
         booleans = ['verbose', 'quiet', 'silent', 'exhaustive',
                     'gen_single_bonding_set', 'calc_sbu_surface_area',
-                    'calc_max_sbu_span', 'create_sbu_input_files']
+                    'calc_max_sbu_span', 'create_sbu_input_files', 'find_symmetry']
         floats = ['distance_tolerance', 'overlap_tolerance',
                   'bond_angle_tolerance',
-                  'cell_angle_cutoff']
+                  'cell_angle_cutoff', 'symmetry_precision']
         integers = ['organic_sbu_per_structure',
                     'metal_sbu_per_structure',
                     'structure_sbu_length',
