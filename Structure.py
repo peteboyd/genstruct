@@ -18,6 +18,9 @@ class Structure(object):
         self.fragments = [] 
         self.build_directives = None
         self.charge = 0
+        self.space_group_name = "P1"
+        self.space_group_number = 1
+        self.cell_setting = "triclinic"
 
     def from_build(self, build_obj):
         """Build structure up from the builder object"""
@@ -49,7 +52,7 @@ class Structure(object):
         # measure minimum distances between atoms to get the 
         # correct bonding.
         base_atoms = atoms1 if len(atoms1) >= len(atoms2) else atoms2
-        bond_atoms = atoms2 if len(atoms2) <= len(atoms1) else atoms1
+        bond_atoms = atoms3 if len(atoms2) <= len(atoms1) else atoms1
         for atom in base_atoms:
             if bond_atoms:
                 shifted_coords = self.min_img(atom, bond_atoms)
@@ -109,9 +112,6 @@ class Structure(object):
             shifted_coords.append(np.dot((scaled+shift), self.cell.lattice))
         return shifted_coords
 
-    def detect_symmetry(self):
-        pass
-
     def re_orient(self):
         """Adjusts cell vectors to lie in the standard directions."""
         frac_coords = [i.in_cell_scaled(self.cell.inverse) 
@@ -120,6 +120,15 @@ class Structure(object):
         for id, atom in enumerate(self.atoms):
             atom.coordinates[:3] = np.dot(frac_coords[id],
                                           self.cell.lattice)
+    
+    def compute_symmetry(self):
+        """Convert the P1 structure into it's symmetry irreduciple representation"""
+        self.sym = Symmetry(self.options)
+        sym.add_structure(self)
+        sym.refine_cell()
+        self.space_group_name = sym.get_space_group_name()
+        self.space_group_number = sym.get_space_group_number()  
+        
 
     def write_cif(self):
         """Write structure information to a cif file."""
@@ -140,11 +149,11 @@ class Structure(object):
 
         # sym block
         c.add_data("sym", _symmetry_space_group_name_H_M=
-                            CIF.label("P1"))
+                            CIF.label(self.space_group_name))
         c.add_data("sym", _symmetry_Int_Tables_number=
-                            CIF.label("1"))
+                            CIF.label(str(self.space_group_number)))
         c.add_data("sym", _symmetry_cell_setting=
-                            CIF.label("triclinic"))
+                            CIF.label(self.cell_setting))
 
         # sym loop block
         c.add_data("sym_loop", _symmetry_equiv_pos_as_xyz=
@@ -284,3 +293,127 @@ class Cell(object):
         """Cell angle gamma."""
         return self._params[5]*RAD2DEG
 
+class Symmetry(object):
+    def __init__(self, options):
+        self.options = options
+        assert os.path.isdir(options.symmetry_dir)
+        sys.path.append(options.symmetry_dir)
+        self.spg = __import__('pyspglib._spglib')._spglib
+        #import pyspglib._spglib as spg
+        self._symprec = options.symmetry_precision
+        self._lattice = None
+        self._inv_latt = None
+        self._scaled_coords = None
+        self._element_symbols = None
+        self.dataset = {}
+
+    def add_structure(self, structure):
+        self._lattice = structure.cell.lattice.copy()
+        self._inv_latt = structure.cell.inverse.copy()
+        self._scaled_coords = np.array([atom.in_cell_scaled(self._inv_latt) for
+                                        atom in structure.atoms])
+        self._angle_tol = -1.0
+        self._element_symbols = [atom.element for atom in structure.atoms]
+        self._numbers = np.array([ATOMIC_NUMBER.index(i) for i in 
+                                    self._element_symbols])
+
+    def refine_cell(self):
+        """
+        get refined data from symmetry finding
+        """
+        # Temporary storage of structure info
+        _lattice = self._lattice.T.copy()
+        _scaled_coords = self._scaled_coords.copy()
+        _symprec = self._symprec
+        _angle_tol = self._angle_tol
+        _numbers = self._numbers.copy()
+        
+        keys = ('number',
+                'international',
+                'hall',
+                'transformation_matrix',
+                'origin_shift',
+                'rotations',
+                'translations',
+                'wyckoffs',
+                'equivalent_atoms')
+        dataset = {}
+
+        dataset['number'] = 0
+        while dataset['number'] == 0:
+
+            # refine cell
+            num_atom = len(_scaled_coords)
+            ref_lattice = _lattice.copy()
+            ref_pos = np.zeros((num_atom * 4, 3), dtype=float)
+            ref_pos[:num_atom] = _scaled_coords.copy()
+            ref_numbers = np.zeros(num_atom * 4, dtype=int)
+            ref_numbers[:num_atom] = _numbers.copy()
+            num_atom_bravais = self.spg.refine_cell(ref_lattice,
+                                       ref_pos,
+                                       ref_numbers,
+                                       num_atom,
+                                       _symprec,
+                                       _angle_tol)
+            for key, data in zip(keys, self.spg.dataset(ref_lattice.copy(),
+                                    ref_pos[:num_atom_bravais].copy(),
+                                ref_numbers[:num_atom_bravais].copy(),
+                                            _symprec,
+                                            _angle_tol)):
+                dataset[key] = data
+
+            _symprec = _symprec * 0.5
+
+        # an error occured with met9, org1, org9 whereby no
+        # symmetry info was being printed for some reason.
+        # thus a check is done after refining the structure.
+
+        if dataset['number'] == 0:
+            warning("WARNING - Bad Symmetry found!")
+        else:
+
+            self.dataset['number'] = dataset['number']
+            self.dataset['international'] = dataset['international'].strip()
+            self.dataset['hall'] = dataset['hall'].strip()
+            self.dataset['transformation_matrix'] = np.array(dataset['transformation_matrix'])
+            self.dataset['origin_shift'] = np.array(dataset['origin_shift'])
+            self.dataset['rotations'] = np.array(dataset['rotations'])
+            self.dataset['translations'] = np.array(dataset['translations'])
+            letters = "0abcdefghijklmnopqrstuvwxyz"
+            try:
+                self.dataset['wyckoffs'] = [letters[x] for x in dataset['wyckoffs']]
+            except IndexError:
+                print dataset['wyckoffs']
+            self.dataset['equivalent_atoms'] = np.array(dataset['equivalent_atoms'])
+            self._lattice = ref_lattice.T.copy()
+            self._scaled_coords = ref_pos[:num_atom_bravais].copy()
+            self._numbers = ref_numbers[:num_atom_bravais].copy()
+            self._element_symbols = [ATOMIC_NUMBER[i] for 
+                i in ref_numbers[:num_atom_bravais]]
+
+    def get_space_group_name(self):
+        return self.dataset["international"] 
+
+    def get_space_group_operations(self):
+        return [self.convert_to_string((r, t)) 
+                for r, t in zip(self.dataset['rotations'], 
+                    self.dataset['translations'])]
+
+    def get_space_group_number(self):
+        return self.dataset["number"]
+
+    def get_equiv_atoms(self):
+        """Returs a list where each entry represents the index to the
+        asymmetric atom. If P1 is assumed, then it just returns a list
+        of the range of the atoms."""
+        return self.dataset["equivalent_atoms"]
+
+    def get_equivalent_hydrogens(self):
+        at_equiv = self.get_equiv_atoms()
+        h_equiv = {}
+        h_id = list(set([i for id, i in enumerate(at_equiv) 
+                    if self._element_symbols[id] == "H"]))
+        for id, i in enumerate(self._element_symbols):
+            if i == "H":
+                h_equiv[id] = h_id.index(at_equiv[id])
+        return h_equiv

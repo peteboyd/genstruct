@@ -95,6 +95,11 @@ class Generate(object):
                 pending -= 1
                 nexts = itertools.cycle(itertools.islice(nexts, pending))
 
+    def all_bonds(self, it1, it2):
+        for i, j in itertools.izip(it1, it2):
+            yield i
+            yield j
+
     def _gen_bonding_sbus(self, sbu, sbus, index=0):
         """Returns an iterator which runs over tuples of bonds
         with other sbus."""
@@ -103,11 +108,15 @@ class Generate(object):
         sbu_repr = list(itertools.product([sbu], sbu.connect_points))
 
         # This becomes combinatorially intractable for met7 with 12 connection points
-        bond_iter = self.roundrobin(*[itertools.product([s], s.connect_points)
-                                    for s in sbus if s.name != sbu.name])
+        bond_iter = list(self.roundrobin(*[itertools.product([s], s.connect_points)
+                                    for s in sbus if s.name != sbu.name]))
         # don't like how this iterates, but will do for now.
-        all_bonds = itertools.tee(bond_iter, ncps)
-        for bond_set in itertools.product(*all_bonds):
+        rev_bond_iter = reversed(list(bond_iter))
+        ncp1 = len(range(ncps)[0:][::2])
+        ncp2 = len(range(ncps)[1:][::2])
+        bonds1 = itertools.tee(bond_iter, ncp1) 
+        bonds2 = itertools.tee(rev_bond_iter, ncp2)
+        for bond_set in itertools.product(*self.all_bonds(bonds1, bonds2)):
             full_bond_set = list(itertools.izip(sbu_repr, bond_set))
             if all([self._valid_bond_pair(i) for i in full_bond_set]):
                 yield [((index, cp1.identifier),(sbu2, cp2)) for 
