@@ -3,8 +3,10 @@ import numpy as np
 import itertools
 from scipy.spatial import distance
 from LinAlg import LinAlg, RAD2DEG
-from element_properties import Radii
+from element_properties import Radii, ATOMIC_NUMBER
 from CIFer import CIF
+import os
+import sys
 
 class Structure(object):
     """Structure class contains atom info for MOF."""
@@ -20,7 +22,8 @@ class Structure(object):
         self.charge = 0
         self.space_group_name = "P1"
         self.space_group_number = 1
-        self.cell_setting = "triclinic"
+        self.symmetry_operations = ['x, y, z']
+        self.cell_setting = 'monoclinic'
 
     def from_build(self, build_obj):
         """Build structure up from the builder object"""
@@ -52,14 +55,19 @@ class Structure(object):
         # measure minimum distances between atoms to get the 
         # correct bonding.
         base_atoms = atoms1 if len(atoms1) >= len(atoms2) else atoms2
-        bond_atoms = atoms3 if len(atoms2) <= len(atoms1) else atoms1
+        bond_atoms = atoms2 if len(atoms2) <= len(atoms1) else atoms1
         for atom in base_atoms:
             if bond_atoms:
                 shifted_coords = self.min_img(atom, bond_atoms)
                 dist = distance.cdist([atom.coordinates[:3]], shifted_coords)
                 dist = dist[0].tolist()
                 bond_atom = bond_atoms[dist.index(min(dist))]
-                self.bonds.update({tuple(sorted((atom.index, 
+                if tuple([atom.index, bond_atom.index]) in self.bonds.keys():
+                    self.bonds.update({tuple([bond_atom.index, atom.index]): "S"})
+                elif tuple([bond_atom.index, atom.index]) in self.bonds.keys():
+                    self.bonds.update({tuple([atom.index, bond_atom.index]): "S"})
+                else:
+                    self.bonds.update({tuple(sorted((atom.index, 
                                            bond_atom.index))): "S"})
 
     def _compute_bond_info(self):
@@ -123,18 +131,86 @@ class Structure(object):
     
     def compute_symmetry(self):
         """Convert the P1 structure into it's symmetry irreduciple representation"""
-        self.sym = Symmetry(self.options)
+        sym = Symmetry(self.options)
         sym.add_structure(self)
         sym.refine_cell()
         self.space_group_name = sym.get_space_group_name()
-        self.space_group_number = sym.get_space_group_number()  
-        
+        self.space_group_number = sym.get_space_group_number()
+        self.symmetry_operations = sym.get_space_group_operations()
+        self.cell_setting = sym.cell_setting
+        symmetry_equiv_atoms = sym.get_equiv_atoms()
+
+        self.cell.lattice = sym._lattice
+        self.cell._ilattice = np.array(np.matrix(sym._lattice).I)
+        syms = {}
+        bonding = {}
+        equivs = sym.get_equiv_atoms()
+        for ind, i in enumerate(equivs):
+            syms.setdefault(i, []).append(ind)
+        ats = [syms[0][0]]
+        ats_equivs = [0]
+        symbonds = {}
+        while len(ats) < len(syms.keys()):
+            for i in ats:
+                bonds = [j for j in self.bonds.keys() if i in j]
+                symbonds.update({j:self.bonds[j] for j in bonds})
+                neighbours = [j[0] for j in bonds if j[0] != i ]
+                neighbours += [j[1] for j in bonds if j[1] != i ]
+                for j in neighbours:
+                    ksym = [k for k in syms.keys() if j in syms[k]][0]
+                    
+                    if ksym in ats_equivs:
+                        pass
+                    else:
+                        if len(ats) >= len(syms.keys()):
+                            break
+                        ats_equivs.append(ksym)
+                        ats.append(j)
+
+        atom_equivs = {}
+        for atat in ats:
+            for j in syms.keys():
+                if atat in syms[j]:
+                    break
+            for atatat in syms[j]:
+                atom_equivs[atatat] = atat
+
+
+        for j in symbonds.keys():
+            i0 = atom_equivs[j[0]]
+            i1 = atom_equivs[j[1]]
+            
+            n1 = ats.index(i0)
+            n2 = ats.index(i1)
+            t, d, p = symbonds[j]
+            symbonds[j] = (n1, n2, t, d, p)
+            
+        self.bonds = symbonds
+         
+        atoms = [self.atoms[i] for i in ats]
+        for ind, atom in enumerate(atoms):
+
+            c = sym._scaled_coords[ats[ind]]
+            atom.coordinates = np.dot(c, self.cell.lattice)
+
+        #for j in self.bonds.keys():
+        #    i0 = ats.index(j[0])
+        #    i1 = ats.index(j[1])
+        #    val = self.bonds.pop(j)
+        #    self.bonds[(i0, i1)] = val
+        self.cell.reparam()
+        self.atoms = atoms
 
     def write_cif(self):
         """Write structure information to a cif file."""
         self._compute_bond_info()
+        if self.options.find_symmetry:
+            self.compute_symmetry()
+
         c = CIF(name=self.name)
-        c.insert_block_order("fragment", 4)
+        if self.space_group_name == "P1":
+            c.insert_block_order("fragment", 4)
+
         labels = []
         # data block
         c.add_data("data", data_=self.name)
@@ -153,11 +229,12 @@ class Structure(object):
         c.add_data("sym", _symmetry_Int_Tables_number=
                             CIF.label(str(self.space_group_number)))
         c.add_data("sym", _symmetry_cell_setting=
-                            CIF.label(self.cell_setting))
+                            CIF.label(self.cell_setting[self.space_group_number]))
 
         # sym loop block
-        c.add_data("sym_loop", _symmetry_equiv_pos_as_xyz=
-                            CIF.label("'x, y, z'"))
+        for i in self.symmetry_operations: 
+            c.add_data("sym_loop", _symmetry_equiv_pos_as_xyz=
+                                   CIF.label("'%s'"%i))
 
         # cell block
         c.add_data("cell", _cell_length_a=CIF.cell_length_a(self.cell.a))
@@ -167,8 +244,9 @@ class Structure(object):
         c.add_data("cell", _cell_angle_beta=CIF.cell_angle_beta(self.cell.beta))
         c.add_data("cell", _cell_angle_gamma=CIF.cell_angle_gamma(self.cell.gamma))
 
-        for name, order in self.fragments:
-            c.add_data("fragment", _chemical_identifier=CIF.label(order),
+        if self.space_group_name == "P1":
+            for name, order in self.fragments:
+                c.add_data("fragment", _chemical_identifier=CIF.label(order),
                                    _chemical_name=CIF.label(name))
         # atom block
         element_counter = {}
@@ -181,7 +259,8 @@ class Structure(object):
                                     CIF.atom_site_type_symbol(atom.element))
             c.add_data("atoms", _atom_site_description=
                                     CIF.atom_site_description(atom.force_field_type))
-            c.add_data("atoms", _atom_site_fragment=CIF.atom_site_fragment(atom.sbu_order))
+            if self.space_group_name == "P1":
+                c.add_data("atoms", _atom_site_fragment=CIF.atom_site_fragment(atom.sbu_order))
             fc = atom.scaled_pos(self.cell.inverse)
             c.add_data("atoms", _atom_site_fract_x=
                                     CIF.atom_site_fract_x(fc[0]))
@@ -191,19 +270,34 @@ class Structure(object):
                                     CIF.atom_site_fract_z(fc[2]))
 
         # bond block
-        for (at1, at2), (type, dist, sym) in self.bonds.items():
-            label1 = labels[at1]
-            label2 = labels[at2]
-            c.add_data("bonds", _geom_bond_atom_site_label_1=
-                                        CIF.geom_bond_atom_site_label_1(label1))
-            c.add_data("bonds", _geom_bond_atom_site_label_2=
-                                        CIF.geom_bond_atom_site_label_2(label2))
-            c.add_data("bonds", _geom_bond_distance=
-                                        CIF.geom_bond_distance(dist))
-            c.add_data("bonds", _geom_bond_site_symmetry_2=
-                                        CIF.geom_bond_site_symmetry_2(sym))
-            c.add_data("bonds", _ccdc_geom_bond_type=
-                                        CIF.ccdc_geom_bond_type(type))
+        if self.options.find_symmetry:
+            for (dump1, dump2), (at1, at2, type, dist, sym) in self.bonds.items():
+                label1 = labels[at1]
+                label2 = labels[at2]
+                c.add_data("bonds", _geom_bond_atom_site_label_1=
+                                            CIF.geom_bond_atom_site_label_1(label1))
+                c.add_data("bonds", _geom_bond_atom_site_label_2=
+                                            CIF.geom_bond_atom_site_label_2(label2))
+                c.add_data("bonds", _geom_bond_distance=
+                                            CIF.geom_bond_distance(dist))
+                c.add_data("bonds", _geom_bond_site_symmetry_2=
+                                            CIF.geom_bond_site_symmetry_2(sym))
+                c.add_data("bonds", _ccdc_geom_bond_type=
+                                            CIF.ccdc_geom_bond_type(type))
+        else:
+            for (at1, at2), (type, dist, sym) in self.bonds.items():
+                label1 = labels[at1]
+                label2 = labels[at2]
+                c.add_data("bonds", _geom_bond_atom_site_label_1=
+                                            CIF.geom_bond_atom_site_label_1(label1))
+                c.add_data("bonds", _geom_bond_atom_site_label_2=
+                                            CIF.geom_bond_atom_site_label_2(label2))
+                c.add_data("bonds", _geom_bond_distance=
+                                            CIF.geom_bond_distance(dist))
+                c.add_data("bonds", _geom_bond_site_symmetry_2=
+                                            CIF.geom_bond_site_symmetry_2(sym))
+                c.add_data("bonds", _ccdc_geom_bond_type=
+                                            CIF.ccdc_geom_bond_type(type))
 
         file = open("%s.cif"%self.name, "w")
         file.writelines(str(c))
@@ -237,6 +331,9 @@ class Cell(object):
             lines.append("atom_vector %12.5f %12.5f %12.5f\n"%(tuple(vector)))
                          
         return lines
+
+    def reparam(self):
+        self.__mkparam()
 
     def __mkparam(self):
         """Update the parameters to match the cell."""
@@ -417,3 +514,317 @@ class Symmetry(object):
             if i == "H":
                 h_equiv[id] = h_id.index(at_equiv[id])
         return h_equiv
+    
+    def convert_to_string(self, operation):
+        """ takes a rotation matrix and translation vector and
+        converts it to string of the format "x, y, z" """
+        def tofrac(x, largest_denom = 32):
+        
+            negfrac = False
+            if not x >= 0:
+                negfrac = True
+                x = abs(x)
+        
+            scaled = int(round(x * largest_denom))
+            whole, leftover = divmod(scaled, largest_denom)
+            if leftover:
+                while leftover % 2 == 0:
+                    leftover >>= 1
+                    largest_denom >>= 1
+            if negfrac:
+                return -1*whole, leftover, largest_denom
+        
+            else:
+                return whole, leftover, largest_denom
+       
+        def to_x(val):
+            """ assumes integer value returned to x """
+            if val == 0:
+                return ""
+            elif val == 1:
+                return "x"
+            elif val == -1:
+                return "-x"
+            else:
+                return "%ix"%val
+        
+        def to_y(val):
+            if val == 0:
+                return ""
+            elif val == 1:
+                return "y"
+            elif val == -1:
+                return "-y"
+            else:
+                return "%iy"%val
+        
+        def to_z(val):
+            if val == 0:
+                return ""
+            elif val == 1:
+                return "z"
+            elif val == -1:
+                return "-z"
+            else:
+                return "%iz"%val
+        # operation[0][0] is the first entry,
+        # operation[0][1] is the second entry,
+        # operation[0][2] is the third entry,
+        # operation[1][1, 2, 3] are the translations
+        fracs = [tofrac(i) for i in operation[1]]
+        string = ""
+        for idx, op in enumerate(operation[0]):
+            x,y,z = op
+            # note, this assumes 1, 0 entries in the rotation operation
+            str_conv = (to_x(x), "+"*abs(x)*(y) + to_y(y),
+                        "+"*max(abs(x),abs(y))*(z) + to_z(z))
+            # determine if translation needs to be included
+            for ind, val in enumerate((x,y,z)):
+                frac = ""
+                if val and fracs[ind][1] != 0:
+                    frac = "+%i/%i"%(fracs[ind][1], fracs[ind][2])
+                string += str_conv[ind] + frac
+
+            # function to add comma delimiter if not the last entry
+            f = lambda p: p < 2 and ", " or ""
+            string += f(idx) 
+
+        return string
+    
+    @property
+    def cell_setting(self):
+        return {
+                0   :   "triclinic",
+                1   :   "triclinic",       
+                2   :   "triclinic",       
+                3   :   "monoclinic",      
+                4   :   "monoclinic",      
+                5   :   "monoclinic",      
+                6   :   "monoclinic",      
+                7   :   "monoclinic",      
+                8   :   "monoclinic",      
+                9   :   "monoclinic",      
+               10   :   "monoclinic",      
+               11   :   "monoclinic",      
+               12   :   "monoclinic",      
+               13   :   "monoclinic",      
+               14   :   "monoclinic",      
+               15   :   "monoclinic",      
+               16   :   "orthorhombic",      
+               17   :   "orthorhombic",      
+               18   :   "orthorhombic",      
+               19   :   "orthorhombic",      
+               20   :   "orthorhombic",      
+               21   :   "orthorhombic",      
+               22   :   "orthorhombic",      
+               23   :   "orthorhombic",      
+               24   :   "orthorhombic",      
+               25   :   "orthorhombic",      
+               26   :   "orthorhombic",      
+               27   :   "orthorhombic",      
+               28   :   "orthorhombic",      
+               29   :   "orthorhombic",      
+               30   :   "orthorhombic",      
+               31   :   "orthorhombic",      
+               32   :   "orthorhombic",      
+               33   :   "orthorhombic",      
+               34   :   "orthorhombic",      
+               35   :   "orthorhombic",      
+               36   :   "orthorhombic",      
+               37   :   "orthorhombic",      
+               38   :   "orthorhombic",      
+               39   :   "orthorhombic",      
+               40   :   "orthorhombic",      
+               41   :   "orthorhombic",      
+               42   :   "orthorhombic",      
+               43   :   "orthorhombic",      
+               44   :   "orthorhombic",      
+               45   :   "orthorhombic",      
+               46   :   "orthorhombic",      
+               47   :   "orthorhombic",      
+               48   :   "orthorhombic",      
+               49   :   "orthorhombic",      
+               50   :   "orthorhombic",      
+               51   :   "orthorhombic",      
+               52   :   "orthorhombic",      
+               53   :   "orthorhombic",      
+               54   :   "orthorhombic",      
+               55   :   "orthorhombic",      
+               56   :   "orthorhombic",      
+               57   :   "orthorhombic",      
+               58   :   "orthorhombic",      
+               59   :   "orthorhombic",      
+               60   :   "orthorhombic",      
+               61   :   "orthorhombic",      
+               62   :   "orthorhombic",      
+               63   :   "orthorhombic",      
+               64   :   "orthorhombic",      
+               65   :   "orthorhombic",      
+               66   :   "orthorhombic",      
+               67   :   "orthorhombic",      
+               68   :   "orthorhombic",      
+               69   :   "orthorhombic",      
+               70   :   "orthorhombic",      
+               71   :   "orthorhombic",      
+               72   :   "orthorhombic",      
+               73   :   "orthorhombic",      
+               74   :   "orthorhombic",      
+               75   :   "tetragonal",        
+               76   :   "tetragonal",        
+               77   :   "tetragonal",        
+               78   :   "tetragonal",        
+               79   :   "tetragonal",        
+               80   :   "tetragonal",        
+               81   :   "tetragonal",        
+               82   :   "tetragonal",        
+               83   :   "tetragonal",        
+               84   :   "tetragonal",        
+               85   :   "tetragonal",        
+               86   :   "tetragonal",        
+               86   :   "tetragonal",        
+               87   :   "tetragonal",        
+               88   :   "tetragonal",        
+               89   :   "tetragonal",        
+               90   :   "tetragonal",        
+               91   :   "tetragonal",        
+               92   :   "tetragonal",        
+               93   :   "tetragonal",        
+               94   :   "tetragonal",        
+               95   :   "tetragonal",        
+               96   :   "tetragonal",        
+               97   :   "tetragonal",        
+               98   :   "tetragonal",        
+               99   :   "tetragonal",        
+              100   :   "tetragonal",        
+              101   :   "tetragonal",        
+              102   :   "tetragonal",        
+              103   :   "tetragonal",        
+              104   :   "tetragonal",        
+              105   :   "tetragonal",        
+              106   :   "tetragonal",        
+              107   :   "tetragonal",        
+              108   :   "tetragonal",        
+              109   :   "tetragonal",        
+              110   :   "tetragonal",        
+              111   :   "tetragonal",        
+              112   :   "tetragonal",        
+              113   :   "tetragonal",        
+              114   :   "tetragonal",        
+              115   :   "tetragonal",        
+              116   :   "tetragonal",        
+              117   :   "tetragonal",        
+              118   :   "tetragonal",        
+              119   :   "tetragonal",        
+              120   :   "tetragonal",        
+              121   :   "tetragonal",        
+              122   :   "tetragonal",        
+              123   :   "tetragonal",        
+              124   :   "tetragonal",        
+              125   :   "tetragonal",        
+              126   :   "tetragonal",        
+              127   :   "tetragonal",        
+              128   :   "tetragonal",        
+              129   :   "tetragonal",        
+              130   :   "tetragonal",        
+              131   :   "tetragonal",        
+              132   :   "tetragonal",        
+              133   :   "tetragonal",        
+              134   :   "tetragonal",        
+              135   :   "tetragonal",        
+              136   :   "tetragonal",        
+              137   :   "tetragonal",        
+              138   :   "tetragonal",        
+              139   :   "tetragonal",        
+              140   :   "tetragonal",        
+              141   :   "tetragonal",        
+              142   :   "tetragonal",        
+              143   :   "trigonal",          
+              144   :   "trigonal",          
+              145   :   "trigonal",          
+              146   :   "rhombohedral",   
+              147   :   "trigonal",       
+              148   :   "rhombohedral",   
+              149   :   "trigonal",       
+              150   :   "trigonal",       
+              151   :   "trigonal",       
+              152   :   "trigonal",       
+              153   :   "trigonal",       
+              154   :   "trigonal",       
+              155   :   "rhombohedral",   
+              156   :   "trigonal",       
+              157   :   "trigonal",       
+              158   :   "trigonal",       
+              159   :   "trigonal",       
+              160   :   "rhombohedral",   
+              161   :   "rhombohedral",   
+              162   :   "trigonal",       
+              163   :   "trigonal",       
+              164   :   "trigonal",       
+              165   :   "trigonal",       
+              166   :   "rhombohedral",   
+              167   :   "rhombohedral",   
+              168   :   "hexagonal",      
+              169   :   "hexagonal",      
+              170   :   "hexagonal",      
+              171   :   "hexagonal",      
+              172   :   "hexagonal",      
+              173   :   "hexagonal",      
+              174   :   "hexagonal",      
+              175   :   "hexagonal",      
+              176   :   "hexagonal",      
+              177   :   "hexagonal",      
+              178   :   "hexagonal",      
+              179   :   "hexagonal",      
+              180   :   "hexagonal",      
+              181   :   "hexagonal",      
+              182   :   "hexagonal",      
+              183   :   "hexagonal",      
+              184   :   "hexagonal",      
+              185   :   "hexagonal",      
+              186   :   "hexagonal",      
+              187   :   "hexagonal",      
+              188   :   "hexagonal",      
+              189   :   "hexagonal",      
+              190   :   "hexagonal",      
+              191   :   "hexagonal",      
+              192   :   "hexagonal",      
+              193   :   "hexagonal",      
+              194   :   "hexagonal",      
+              195   :   "cubic",          
+              196   :   "cubic",          
+              197   :   "cubic",          
+              198   :   "cubic",          
+              199   :   "cubic",          
+              200   :   "cubic",          
+              201   :   "cubic",          
+              202   :   "cubic",          
+              203   :   "cubic",          
+              204   :   "cubic",          
+              205   :   "cubic",          
+              206   :   "cubic",          
+              207   :   "cubic",          
+              208   :   "cubic",          
+              209   :   "cubic",          
+              210   :   "cubic",          
+              211   :   "cubic",          
+              212   :   "cubic",          
+              213   :   "cubic",          
+              214   :   "cubic",          
+              215   :   "cubic",          
+              216   :   "cubic",          
+              217   :   "cubic",          
+              218   :   "cubic",          
+              219   :   "cubic",          
+              220   :   "cubic",          
+              221   :   "cubic",          
+              222   :   "cubic",          
+              223   :   "cubic",          
+              224   :   "cubic",          
+              225   :   "cubic",          
+              226   :   "cubic",          
+              227   :   "cubic",          
+              228   :   "cubic",          
+              229   :   "cubic",          
+              230   :   "cubic",          
+              } 
+    

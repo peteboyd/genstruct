@@ -108,8 +108,8 @@ class Generate(object):
         sbu_repr = list(itertools.product([sbu], sbu.connect_points))
 
         # This becomes combinatorially intractable for met7 with 12 connection points
-        bond_iter = list(self.roundrobin(*[itertools.product([s], s.connect_points)
-                                    for s in sbus if s.name != sbu.name]))
+        bond_iter = list(self.roundrobin(*[itertools.product([s], s.connect_points) for s in sbus ]))
+                                    #if s.name != sbu.name]))
         # don't like how this iterates, but will do for now.
         rev_bond_iter = reversed(list(bond_iter))
         ncp1 = len(range(ncps)[0:][::2])
@@ -130,7 +130,6 @@ class Generate(object):
         (sbu1, cp1), (sbu2, cp2) = set
         if all([i is None for i in [cp1.special, cp2.special, cp1.constraint, cp2.constraint]]):
             return sbu1.is_metal != sbu2.is_metal
-
         return (cp1.special == cp2.constraint) and (cp2.special == cp1.constraint)
 
     def _yield_bonding_sbus(self, sbu, sbus, index=0, p=[]):
