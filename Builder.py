@@ -127,11 +127,11 @@ class Build(object):
         if len(metlist) < self.options.metal_sbu_per_structure:
             actual = len(metlist)
             makeup = self.options.metal_sbu_per_structure - actual
-            [metlist.append(metlist[0]) for i in makeup]
-        if len(orglist) < self.options.metal_sbu_per_structure:
+            [metlist.append(metlist[0]) for i in range(makeup)]
+        if len(orglist) < self.options.organic_sbu_per_structure:
             actual = len(orglist)
             makeup = self.options.organic_sbu_per_structure - actual
-            [orglist.append(orglist[0]) for i in makeup]
+            [orglist.append(orglist[0]) for i in range(makeup)]
 
         met_line = "_".join(["m%i"%(i) for i in sorted(metlist)])
         org_line = "_".join(["o%i"%(i) for i in sorted(orglist)])
