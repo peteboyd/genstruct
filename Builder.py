@@ -286,8 +286,14 @@ class Build(object):
         if not np.allclose(np.dot(cp1.z[:3], cp2.z[:3]), -1., atol=ang_tol):
             return False
         # (anti)parallel alignment vectors
-        if not np.allclose(abs(np.dot(cp1.y[:3], cp2.y[:3])), 1., atol=ang_tol):
-            return False
+        # stringent
+        if not self.options.relaxed_topology:
+            if not np.allclose((np.dot(cp1.y[:3], cp2.y[:3])), 1., atol=ang_tol):
+                return False
+        # relaxed
+        if self.options.relaxed_topology:
+            if not np.allclose(abs(np.dot(cp1.y[:3], cp2.y[:3])), 1., atol=ang_tol):
+                return False
         return True
         
         

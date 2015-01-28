@@ -115,7 +115,8 @@ class Generate(object):
         ncp1 = len(range(ncps)[0:][::2])
         ncp2 = len(range(ncps)[1:][::2])
         bonds1 = itertools.tee(bond_iter, ncp1) 
-        bonds2 = itertools.tee(rev_bond_iter, ncp2)
+        #bonds2 = itertools.tee(rev_bond_iter, ncp2)
+        bonds2 = itertools.tee(bond_iter, ncp2)
         for bond_set in itertools.product(*self.all_bonds(bonds1, bonds2)):
             full_bond_set = list(itertools.izip(sbu_repr, bond_set))
             if all([self._valid_bond_pair(i) for i in full_bond_set]):
@@ -128,6 +129,8 @@ class Generate(object):
         if they are a (metal|organic) pair
         """
         (sbu1, cp1), (sbu2, cp2) = set
+        print sbu1.name, cp1.special, cp1.constraint
+        print sbu2.name, cp2.special, cp2.constraint
         if all([i is None for i in [cp1.special, cp2.special, cp1.constraint, cp2.constraint]]):
             return sbu1.is_metal != sbu2.is_metal
         return (cp1.special == cp2.constraint) and (cp2.special == cp1.constraint)
