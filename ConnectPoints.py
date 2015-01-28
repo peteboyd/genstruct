@@ -36,6 +36,8 @@ class ConnectPoint(object):
                 self.symmetry = 1
             try:
                 self.special = int(line[11])
+                if self.special == 0:
+                    self.special = None
             except ValueError:
                 self.special = None
         self._normalize()

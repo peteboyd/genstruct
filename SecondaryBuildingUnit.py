@@ -103,6 +103,10 @@ class SBU(object):
             for constraint in const_lines:
                 id, special, const = [int(i) for i in constraint.split()]
                 cp = self.get_cp(id)
+                if special == 0:
+                    special = None
+                if const == 0:
+                    const = None
                 cp.special = special
                 cp.constraint = const
 
