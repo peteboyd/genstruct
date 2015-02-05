@@ -8,6 +8,7 @@ import copy
 import math
 from scipy.spatial import distance
 import itertools
+from random import choice
 from logging import info, debug, warning, error, critical
 from element_properties import Radii
 from LinAlg import LinAlg
@@ -21,12 +22,175 @@ class Build(object):
         self.periodic_vectors = Cell() 
         self.periodic_origins = np.zeros((3,3))
         self.periodic_index = 0
+        self.periodic_cps = []
         
     def reset(self):
         self.sbus = []
         self.periodic_vectors = Cell() 
         self.periodic_origins = np.zeros((3,3))
         self.periodic_index = 0
+
+    def backstep(self):
+        if len(self.sbus) == 1:
+            return
+        lastsbu = self.sbus[-1]
+        # eliminate periodic boundaries created with this SBU?
+        perpop = []
+        for id, j in enumerate(self.periodic_cps):
+            (id1, cpid1), (id2, cpid2) = j
+            if lastsbu.order in (id1, id2):
+                perpop.append(id)
+        perpop.sort()
+        for k in reversed(perpop):
+            self.periodic_cps.pop(k)
+            self.periodic_index -= 1
+            self.periodic_vectors.remove(k)
+            if k == 0:
+                self.periodic_origins[:2] = self.periodic_origins[1:]
+            elif k == 1:
+                self.periodic_origins[1] = self.periodic_origins[2]
+                
+            self.periodic_origins[2] = np.array([0., 0., 0.])
+
+        # eliminate the record of bonding to this SBU
+        for cp in lastsbu.connect_points:
+            try:
+                id, cpid = cp.sbu_bond
+                sbucp = self.sbus[id].get_cp(cpid)
+                sbucp.connected = False
+                sbucp.sbu_bond = None
+            except TypeError:
+                pass
+
+        lastsbu = self.sbus.pop(-1)
+        # destroy all periodic formed bonds and re-calculate
+        #for s in self.sbus:
+        #    for c in s.connect_points:
+        #        if c.periodic:
+        #            c.connected = False
+        #            c.sbu_bond = None
+
+        # re-calculate bonds with existing periodic boundaries
+        #self.bonding_check()
+
+    def build_iteratively(self, sbu_set):
+        """Constructs the MOF based on the bonds of existing inserted SBUs.
+        This removes some build directives for SBUs that are already bonded.
+        This is a waste of time in the 'build tree' method"""
+        self.reset()
+        if self.options.debug_writing:
+            self.init_debug()
+        #insert the metal SBU first
+        self.sbus = [copy.deepcopy(choice([x for x in sbu_set if x.is_metal]))]
+        self.sbus[0].order = 0
+        self.bonding_check()
+        structstrings = []
+        structstring = ""
+        total_count = 0
+        done = False
+        while not done:
+            curr_bonds = [(sbu, bond) for sbu in self.sbus for bond
+                            in sbu.connect_points]
+            base_bonds = [(sbu, bond) for sbu in sbu_set for bond in
+                            sbu.connect_points]
+            bond_pairs = self.gen_bondlist(curr_bonds, base_bonds)
+            backtrack = 0
+            debug("Length of structure = %i"%(len(self.sbus)))
+            for bond in bond_pairs:
+                if (len(self.sbus)) > self.options.structure_sbu_length:
+                    structstrings.append(structstring)
+                    self.backstep()
+                    # if we get here, then remove the last sbu in the list
+                    # eliminate all bonds created with the periodic boundary?
+                    structstring = ".".join([i for i in structstring.split('.') if i][:-1])
+                    structstring += "."
+                    break
+
+                sbu1 = bond[0][0]
+                cp1 = bond[0][1]
+                sbu2 = copy.deepcopy(bond[1][0])
+                sbu2.order = len(self.sbus)
+                cp2 = sbu2.get_cp(bond[1][1].identifier)
+                bondstring = self.convert_to_string(sbu1, cp1, sbu2, cp2)
+                if structstring + bondstring in structstrings:
+                    backtrack += 1
+                elif cp1.connected:
+                    pass
+                else:
+                    total_count += 1
+                    debug("Trying SBU %s on (SBU %i, %s) "%(
+                        sbu2.name, sbu1.order, sbu1.name) + "using the bonds (%i, %i)"%(
+                            cp2.identifier, cp1.identifier))
+                    if self.options.debug_writing:
+                        self.debug_xyz(sbu2)
+
+                    self.translation(sbu1, cp1, sbu2, cp2)
+                    if self.options.debug_writing:
+                        self.debug_xyz(sbu2)
+                    self.rotation_z(sbu1, cp1, sbu2, -cp2)
+                    -cp2
+                    if self.options.debug_writing:
+                        self.debug_xyz(sbu2)
+                    self.rotation_y(sbu1, cp1, sbu2, cp2)
+                    if self.options.debug_writing:
+                        self.debug_xyz(sbu2)
+                    if self.overlap(sbu2):
+                        debug("overlap found")
+                    else:
+                        structstring += bondstring 
+                        self.sbus.append(sbu2)
+                        cp1.connected = True
+                        cp1.sbu_bond = (sbu2.order, cp2.identifier)
+                        cp2.connected = True
+                        cp2.sbu_bond = (sbu1.order, cp1.identifier)
+                        self.bonding_check()
+                    if self._completed_structure(sbu_set):
+                        # test for periodic overlaps.
+                        name = self.obtain_structure_name()
+                        new_structure = Structure(self.options, name=name)
+                        new_structure.from_build(self)
+                        if new_structure.compute_overlap():
+                            debug("overlap found in final structure")
+                        new_structure.re_orient()
+                        new_structure.build_directives = structstring 
+                        info("Structure Generated!")
+                        new_structure.write_cif()
+                        return True
+                    if total_count >= self.options.max_trials:
+                        return False
+
+            if backtrack >= len(bond_pairs):
+                structstrings.append(structstring)
+                self.backstep()
+                # if we get here, then remove the last sbu in the list
+                # eliminate all bonds created with the periodic boundary?
+                structstring = ".".join([i for i in structstring.split('.') if i][:-1])
+                structstring += "."
+            if len(self.sbus) == 1:
+                done = True
+        return False
+
+    def convert_to_string(self, sbu1, cp1, sbu2, cp2):
+        return "(%i,%i,%i,%i),(%i,%i,%i,%i)."%(sbu1.order, sbu1.identifier, sbu1.is_metal, cp1.identifier,
+                                              sbu2.order, sbu2.identifier, sbu2.is_metal, cp2.identifier)
+
+    def gen_bondlist(self, curr_bonds, base_bonds):
+        bondlist = list(itertools.product(curr_bonds, base_bonds))
+        pop = []
+        for id, pair in enumerate(bondlist):
+            if not self.valid_bond(pair):
+                pop.append(id)
+        pop.sort()
+        [bondlist.pop(i) for i in reversed(pop)]
+        return bondlist
+
+    def valid_bond(self, bond):
+        (sbu1, cp1), (sbu2, cp2) = bond
+        if cp1.connected or cp2.connected:
+            return False
+        if all([i is None for i in [cp1.special, cp1.constraint, cp2.special, cp2.constraint]]):
+            return sbu1.is_metal != sbu2.is_metal
+        return (cp1.special == cp2.constraint) and (cp2.special == cp1.constraint)
 
     def build_from_directives(self, directives, sbu_set):
         index_type = []
@@ -145,9 +309,13 @@ class Build(object):
         for (ind1, cp1), (ind2, cp2) in itertools.combinations(bond_points, 2):
             if self._valid_bond(ind1, cp1, ind2, cp2):
                 distance_vector = cp1.origin[:3] - cp2.origin[:3]
+                pershift = False
                 if self.periodic_index == 3:
                     # shift the vector by periodic boundaries
+                    pp = distance_vector.copy()
                     distance_vector = self.periodic_shift(distance_vector)
+                    if not np.allclose(np.linalg.norm(distance_vector), np.linalg.norm(pp)):
+                        pershift = True
                 if np.linalg.norm(distance_vector) < self.options.distance_tolerance:
                     # local bond
                     debug("Bond found between %s, and %s (%i,%i) at bonds (%i,%i)"%(
@@ -156,6 +324,9 @@ class Build(object):
                     cp1.connected, cp2.connected = True, True
                     cp1.sbu_bond = (ind2, cp2.identifier)
                     cp2.sbu_bond = (ind1, cp1.identifier)
+                    if pershift:
+                        cp1.periodic = True
+                        cp2.periodic = True
                     
                 elif self._valid_periodic_vector(distance_vector):
                     # new periodic boundary
@@ -166,7 +337,10 @@ class Build(object):
                     self.periodic_index += 1
                     cp1.connected, cp2.connected = True, True
                     cp1.sbu_bond = (ind2, cp2.identifier)
-                    cp2.sbu_bond = (ind1, cp1.identifier)           
+                    cp2.sbu_bond = (ind1, cp1.identifier)
+                    cp1.periodic = True
+                    cp2.periodic = True
+                    self.periodic_cps.append(((ind1, cp1.identifier), (ind2, cp2.identifier)))
                     if self.periodic_index == 3:
                         self.bonding_check()
     
@@ -323,6 +497,6 @@ class Build(object):
         axis = cp/np.linalg.norm(cp)
         R = LinAlg.rotation_matrix(axis, angle, point=cp2.origin[:3])
         test_vector = np.dot(R[:3,:3], cp2.y[:3])
-        if not np.allclose(LinAlg.calc_angle(test_vector, cp1.y[:3]), 0., atol=0.001):
+        if not np.allclose(LinAlg.calc_angle(test_vector, cp1.y[:3]), 0., atol=0.002):
             R = LinAlg.rotation_matrix(-axis, angle, point=cp2.origin[:3])
         sbu2.rotate(R)

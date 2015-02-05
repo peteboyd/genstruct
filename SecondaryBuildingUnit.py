@@ -15,7 +15,7 @@ class SBU(object):
     def __init__(self, name=None):
         self.name = name
         self.identifier = 0
-        self.index = 0
+        self.order = 0
         self.topology = None
         self.charge = 0
         self.parent = None

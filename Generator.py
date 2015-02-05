@@ -26,7 +26,11 @@ class Generate(object):
         for combo in self.options.sbu_combinations:
             # first one has to be a metal.
             met = [self.sbus.get(combo[0], _METAL=True)]
-            combs.append(tuple(met + [self.sbus.get(i) for i in combo[1:]]))
+            comb = [met[0]]
+            for j in combo[1:]:
+                for k in self.sbus.getall(j):
+                    comb.append(k)
+            combs.append(tuple(comb))
         return combs
     
     def _valid_sbu_combination(self, sbu_set):
@@ -37,6 +41,13 @@ class Generate(object):
         specials = []
         none_const = {}
         none_spec = {}
+        children = []
+        for kk in sbu_set:
+            if kk.children:
+                for j in kk.children:
+                    children.append(j)
+
+        sbu_set = tuple(list(sbu_set) + children)
         for sbu in sbu_set:
             for cp in sbu.connect_points:
                 if cp.special:
@@ -51,7 +62,6 @@ class Generate(object):
         condition1 = set(specials) == set(constraints)
         condition2 = len([i for i in sbu_set if i.is_metal]) == \
                 self.options.metal_sbu_per_structure
-
         condition3 = False
         for sbu, met in none_spec.keys():
             for sbu2, met2 in none_const.keys():
@@ -109,15 +119,17 @@ class Generate(object):
 
         # This becomes combinatorially intractable for met7 with 12 connection points
         bond_iter = list(self.roundrobin(*[itertools.product([s], s.connect_points) for s in sbus ]))
-                                    #if s.name != sbu.name]))
+                                   # if s.name != sbu.name]))
         # don't like how this iterates, but will do for now.
         rev_bond_iter = reversed(list(bond_iter))
         ncp1 = len(range(ncps)[0:][::2])
         ncp2 = len(range(ncps)[1:][::2])
-        bonds1 = itertools.tee(bond_iter, ncp1) 
+        all_bonds = itertools.tee(bond_iter, ncps)
+        #bonds1 = itertools.tee(bond_iter, ncp1) 
         #bonds2 = itertools.tee(rev_bond_iter, ncp2)
-        bonds2 = itertools.tee(bond_iter, ncp2)
-        for bond_set in itertools.product(*self.all_bonds(bonds1, bonds2)):
+        #bonds2 = itertools.tee(bond_iter, ncp2)
+        #for bond_set in itertools.product(*self.all_bonds(bonds1, bonds2)):
+        for bond_set in itertools.product(*all_bonds):
             full_bond_set = list(itertools.izip(sbu_repr, bond_set))
             if all([self._valid_bond_pair(i) for i in full_bond_set]):
                 yield [((index, cp1.identifier),(sbu2, cp2)) for 
@@ -129,8 +141,8 @@ class Generate(object):
         if they are a (metal|organic) pair
         """
         (sbu1, cp1), (sbu2, cp2) = set
-        print sbu1.name, cp1.special, cp1.constraint
-        print sbu2.name, cp2.special, cp2.constraint
+        #print sbu1.name, cp1.special, cp1.constraint
+        #print sbu2.name, cp2.special, cp2.constraint
         if all([i is None for i in [cp1.special, cp2.special, cp1.constraint, cp2.constraint]]):
             return sbu1.is_metal != sbu2.is_metal
         return (cp1.special == cp2.constraint) and (cp2.special == cp1.constraint)
@@ -141,7 +153,7 @@ class Generate(object):
         if index == self.options.structure_sbu_length:
             yield self.flatten(p)
         else:
-            index += 1
+            index +=1 
             #TODO(pboyd): Probably ignore bonding with the metal-metal cases, since they will likely always form a periodic boundary right at the beginning of the Build.
             for iterator in self._gen_bonding_sbus(sbu, sbus, index-1):
                 p[index-1] = list(iterator)
@@ -182,8 +194,11 @@ class SBU_list(object):
     def getall(self, identifier):
         """Produces the SBU with the target identifier regardless of being
         metal or organic."""
+        all = []
         for sbu in self.list:
             if sbu.identifier == identifier:
-                return sbu
-        raise Exception("Could not find the SBU with the identifier %s"%(identifier))
+                all.append(sbu)
+        if not all:
+            raise Exception("Could not find the SBU with the identifier %s"%(identifier))
+        return all
 

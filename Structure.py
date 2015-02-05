@@ -63,12 +63,13 @@ class Structure(object):
                 dist = dist[0].tolist()
                 bond_atom = bond_atoms[dist.index(min(dist))]
                 if tuple([atom.index, bond_atom.index]) in self.bonds.keys():
-                    self.bonds.update({tuple([bond_atom.index, atom.index]): "S"})
+                    bond = tuple([bond_atom.index, atom.index])
                 elif tuple([bond_atom.index, atom.index]) in self.bonds.keys():
-                    self.bonds.update({tuple([atom.index, bond_atom.index]): "S"})
+                    bond = tuple([atom.index, bond_atom.index])
                 else:
-                    self.bonds.update({tuple(sorted((atom.index, 
-                                           bond_atom.index))): "S"})
+                    bond = tuple(sorted((atom.index, bond_atom.index)))
+
+                self.bonds.update({bond: "S"})
 
     def _compute_bond_info(self):
         """Update bonds to contain bond type, distances, and min img
@@ -137,7 +138,7 @@ class Structure(object):
         self.space_group_name = sym.get_space_group_name()
         self.space_group_number = sym.get_space_group_number()
         self.symmetry_operations = sym.get_space_group_operations()
-        self.cell_setting = sym.cell_setting
+        self.cell_setting = sym.cell_setting[self.space_group_number]
         symmetry_equiv_atoms = sym.get_equiv_atoms()
 
         self.cell.lattice = sym._lattice
@@ -147,25 +148,29 @@ class Structure(object):
         equivs = sym.get_equiv_atoms()
         for ind, i in enumerate(equivs):
             syms.setdefault(i, []).append(ind)
-        ats = [syms[0][0]]
+        #ats = [syms[0][0]]
+        ats = syms.keys()
         ats_equivs = [0]
         symbonds = {}
-        while len(ats) < len(syms.keys()):
-            for i in ats:
-                bonds = [j for j in self.bonds.keys() if i in j]
-                symbonds.update({j:self.bonds[j] for j in bonds})
-                neighbours = [j[0] for j in bonds if j[0] != i ]
-                neighbours += [j[1] for j in bonds if j[1] != i ]
-                for j in neighbours:
-                    ksym = [k for k in syms.keys() if j in syms[k]][0]
-                    
-                    if ksym in ats_equivs:
-                        pass
-                    else:
-                        if len(ats) >= len(syms.keys()):
-                            break
-                        ats_equivs.append(ksym)
-                        ats.append(j)
+        #while len(ats) < len(syms.keys()):
+        #    for i in ats:
+        #        bonds = [j for j in self.bonds.keys() if i in j]
+        #        symbonds.update({j:self.bonds[j] for j in bonds})
+        #        neighbours = [j[0] for j in bonds if j[0] != i ]
+        #        neighbours += [j[1] for j in bonds if j[1] != i ]
+        #        for j in neighbours:
+        #            ksym = [k for k in syms.keys() if j in syms[k]][0]
+        #            
+        #            if ksym in ats_equivs:
+        #                pass
+        #            else:
+        #                ats_equivs.append(ksym)
+        #                ats.append(j)
+        #                if len(ats) >= len(syms.keys()):
+        #                    break
+        for i in ats:
+            bonds = [j for j in self.bonds.keys() if i in j]
+            symbonds.update({j:self.bonds[j] for j in bonds})
 
         atom_equivs = {}
         for atat in ats:
@@ -229,7 +234,7 @@ class Structure(object):
         c.add_data("sym", _symmetry_Int_Tables_number=
                             CIF.label(str(self.space_group_number)))
         c.add_data("sym", _symmetry_cell_setting=
-                            CIF.label(self.cell_setting[self.space_group_number]))
+                            CIF.label(self.cell_setting))
 
         # sym loop block
         for i in self.symmetry_operations: 
@@ -323,7 +328,14 @@ class Cell(object):
         """Adds a periodic vector to the lattice."""
         self.lattice[index][:] = vector.copy()
         self.nlattice[index][:] = vector.copy() / np.linalg.norm(vector)
-        
+       
+    def remove(self, index):
+        if index == 0:
+            self.lattice[:2] = self.lattice[1:]
+        elif index == 1:
+            self.lattice[1] = self.lattice[2]
+        self.lattice[2] = np.identity(3)[2]
+
     def to_xyz(self):
         """Returns a list of the strings"""
         lines = []

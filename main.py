@@ -103,36 +103,39 @@ class JobHandler(object):
             extra = [j for i in combo for j in i.children]
             combo = tuple(list(combo) + extra)
             info("Trying %s"%(', '.join([i.name for i in combo])))
-            if self.options.exhaustive:
-                directives = run.generate_build_directives(None, combo)
-            elif self.options.build_directives:
-                directives = run.build_directives_from_options(build)
+            if self.options.build_from_tree:
+                if self.options.exhaustive:
+                    directives = run.generate_build_directives(None, combo)
+                elif self.options.build_directives:
+                    directives = run.build_directives_from_options(build)
+                for iter in range(self.options.max_trials):
+                    try:
+                        d = directives.next()
+                    except StopIteration:
+                        break
+                    #print_list = []
+                    #for i in d:
+                    #    if isinstance(i, SBU):
+                    #        print_list.append(i.name)
+                    #    elif isinstance(i, tuple):
+                    #        sub_list = [i[0]]
+                    #        sub_list.append(tuple([i[1][0].name,i[1][1].identifier]))
+                    #        print_list.append(sub_list)
+                    #print print_list
+                    #continue
+                    # pass the directive to a MOF building algorithm
+                    gen = build.build_from_directives(d, combo)
+                    gen_counter = gen_counter + 1 if gen else gen_counter
+                    if gen_counter >= self.options.max_structures:
+                        break
+                    # random increment if many trials have passed
 
-            for iter in range(self.options.max_trials):
-                try:
-                    d = directives.next()
-                except StopIteration:
-                    break
-                #print_list = []
-                #for i in d:
-                #    if isinstance(i, SBU):
-                #        print_list.append(i.name)
-                #    elif isinstance(i, tuple):
-                #        sub_list = [i[0]]
-                #        sub_list.append(tuple([i[1][0].name,i[1][1].identifier]))
-                #        print_list.append(sub_list)
-                #print print_list
-                #continue
-                # pass the directive to a MOF building algorithm
-                gen = build.build_from_directives(d, combo)
-                gen_counter = gen_counter + 1 if gen else gen_counter
-                if gen_counter >= self.options.max_structures:
-                    break
-                # random increment if many trials have passed
-
-                if iter >= (self.options.max_trials/2):
-                    [directives.next() for i in range(randint(0,
-                                    self.options.max_trials/3))]
+                    if iter >= (self.options.max_trials/2):
+                        [directives.next() for i in range(randint(0,
+                                        self.options.max_trials/3))]
+            else:
+                for i in range(self.options.max_structures):
+                    gen = build.build_iteratively(combo)
 
     def _sbu_report(self):
         """Compute the surface areas and report them to a .csv file."""

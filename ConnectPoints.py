@@ -20,6 +20,7 @@ class ConnectPoint(object):
         self.constraint = None
         self.special = None
         self.symmetry = 1
+        self.periodic = False
         
     def from_config(self, line):
         """ Obtain the connectivity information from the config .ini file."""
