@@ -405,9 +405,15 @@ class Cell(object):
 class Symmetry(object):
     def __init__(self, options):
         self.options = options
-        assert os.path.isdir(options.symmetry_dir)
-        sys.path.append(options.symmetry_dir)
-        self.spg = __import__('pyspglib._spglib')._spglib
+        if options.symmetry_dir:
+            sys.path[:0] = [options.symmetry_dir]
+        try:
+            self.spg = __import__('pyspglib._spglib')._spglib
+        except ImportError:
+            self.spg = None
+            if options.find_symmetry:
+                warning("Could not find the symmetry finding extensions, defaulting to P1")
+                options.find_symmetry = False
         #import pyspglib._spglib as spg
         self._symprec = options.symmetry_precision
         self._lattice = None
