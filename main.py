@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Genstruct 3.0 builds MOFs with a better user-interface, where one can
 instruct stopping criteria, have more control over output, and
