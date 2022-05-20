@@ -11,7 +11,10 @@ from logging import info, debug, warning, error, critical
 import config
 from config import Terminate
 import glog
-import ConfigParser
+try:
+    import configparser
+except ImportError:
+    import ConfigParser as configparser
 from Generator import Generate
 from SecondaryBuildingUnit import SBU
 from Builder import Build
@@ -121,7 +124,7 @@ class JobHandler(object):
                     #        sub_list = [i[0]]
                     #        sub_list.append(tuple([i[1][0].name,i[1][1].identifier]))
                     #        print_list.append(sub_list)
-                    #print print_list
+                    #print(print_list)
                     #continue
                     # pass the directive to a MOF building algorithm
                     gen = build.build_from_directives(d, combo)
@@ -189,7 +192,7 @@ class JobHandler(object):
             self._from_config(file)
                 
     def _from_config(self, filename):
-        sbu_config = ConfigParser.SafeConfigParser()
+        sbu_config = configparser.SafeConfigParser()
         sbu_config.read(filename)
         info("Found %i SBUs"%(len(sbu_config.sections())))
         for raw_sbu in sbu_config.sections():

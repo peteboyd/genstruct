@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import sys
 import os
-import openbabel as ob
-import pybel
+#import openbabel as ob
+#import pybel
 from logging import info, debug, warning, error, critical
 import numpy
 from element_properties import ATOMIC_NUMBER 

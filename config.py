@@ -2,9 +2,15 @@
 _version_=3.0
 from optparse import OptionParser
 import optparse
-import ConfigParser
+try:
+    import configparser
+except ImportError:
+    import ConfigParser as configparser
 import os
-from StringIO import StringIO
+try:
+        from StringIO import StringIO ## for Python 2
+except ImportError:
+        from io import StringIO ## for Python 3
 import sys
 import re
 import copy
@@ -16,7 +22,7 @@ class Options(object):
     def __init__(self):
 
         self._command_options()
-        self.job = ConfigParser.SafeConfigParser()
+        self.job = configparser.SafeConfigParser()
         self._set_paths()
         self._load_defaults()
         self._load_job()

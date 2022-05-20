@@ -141,8 +141,8 @@ class Generate(object):
         if they are a (metal|organic) pair
         """
         (sbu1, cp1), (sbu2, cp2) = set
-        #print sbu1.name, cp1.special, cp1.constraint
-        #print sbu2.name, cp2.special, cp2.constraint
+        #print(sbu1.name, cp1.special, cp1.constraint)
+        #print(sbu2.name, cp2.special, cp2.constraint)
         if all([i is None for i in [cp1.special, cp2.special, cp1.constraint, cp2.constraint]]):
             return sbu1.is_metal != sbu2.is_metal
         return (cp1.special == cp2.constraint) and (cp2.special == cp1.constraint)
