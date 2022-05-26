@@ -113,7 +113,7 @@ class JobHandler(object):
                     directives = run.build_directives_from_options(build)
                 for iter in range(self.options.max_trials):
                     try:
-                        d = directives.next()
+                        d = next(directives)
                     except StopIteration:
                         break
                     #print_list = []
@@ -134,7 +134,7 @@ class JobHandler(object):
                     # random increment if many trials have passed
 
                     if iter >= (self.options.max_trials/2):
-                        [directives.next() for i in range(randint(0,
+                        [next(directives) for i in range(randint(0,
                                         self.options.max_trials/3))]
             else:
                 for i in range(self.options.max_structures):

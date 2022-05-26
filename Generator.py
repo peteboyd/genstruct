@@ -96,7 +96,7 @@ class Generate(object):
 
     def roundrobin(self, *iterables):
         pending = len(iterables)
-        nexts = itertools.cycle(iter(it).next for it in iterables)
+        nexts = itertools.cycle(iter(it).__next__ for it in iterables)
         while pending:
             try:
                 for next in nexts:
@@ -130,7 +130,7 @@ class Generate(object):
         #bonds2 = itertools.tee(bond_iter, ncp2)
         #for bond_set in itertools.product(*self.all_bonds(bonds1, bonds2)):
         for bond_set in itertools.product(*all_bonds):
-            full_bond_set = list(itertools.izip(sbu_repr, bond_set))
+            full_bond_set = list(zip(sbu_repr, bond_set))
             if all([self._valid_bond_pair(i) for i in full_bond_set]):
                 yield [((index, cp1.identifier),(sbu2, cp2)) for 
                         (sbu1, cp1),(sbu2,cp2) in full_bond_set]

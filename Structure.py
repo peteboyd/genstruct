@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
 import itertools
+from logging import info, debug, warning, error, critical
 from scipy.spatial import distance
 from LinAlg import LinAlg, RAD2DEG
 from element_properties import Radii, ATOMIC_NUMBER
@@ -134,7 +135,11 @@ class Structure(object):
         """Convert the P1 structure into it's symmetry irreduciple representation"""
         sym = Symmetry(self.options)
         sym.add_structure(self)
-        sym.refine_cell()
+        retcode = sym.spg_import()
+        if retcode:
+            sym.refine_cell()
+        else:
+            return
         self.space_group_name = sym.get_space_group_name()
         self.space_group_number = sym.get_space_group_number()
         self.symmetry_operations = sym.get_space_group_operations()
@@ -407,14 +412,6 @@ class Symmetry(object):
         self.options = options
         if options.symmetry_dir:
             sys.path[:0] = [options.symmetry_dir]
-        try:
-            self.spg = __import__('pyspglib._spglib')._spglib
-        except ImportError:
-            self.spg = None
-            if options.find_symmetry:
-                warning("Could not find the symmetry finding extensions, defaulting to P1")
-                options.find_symmetry = False
-        #import pyspglib._spglib as spg
         self._symprec = options.symmetry_precision
         self._lattice = None
         self._inv_latt = None
@@ -422,6 +419,18 @@ class Symmetry(object):
         self._element_symbols = None
         self.dataset = {}
 
+    def spg_import(self):
+        try:
+            self.spg = __import__('pyspglib._spglib')._spglib
+            return 1
+        except ImportError:
+            self.spg = None
+            if self.options.find_symmetry:
+                warning("Could not find the symmetry finding extensions, defaulting to P1")
+                self.options.find_symmetry = False
+                return 0
+
+        #import pyspglib._spglib as spg
     def add_structure(self, structure):
         self._lattice = structure.cell.lattice.copy()
         self._inv_latt = structure.cell.inverse.copy()
@@ -507,21 +516,33 @@ class Symmetry(object):
                 i in ref_numbers[:num_atom_bravais]]
 
     def get_space_group_name(self):
-        return self.dataset["international"] 
+        try: 
+            return self.dataset["international"] 
+        except KeyError:
+            return 'P1'
 
     def get_space_group_operations(self):
-        return [self.convert_to_string((r, t)) 
-                for r, t in zip(self.dataset['rotations'], 
-                    self.dataset['translations'])]
+        try:
+            return [self.convert_to_string((r, t)) 
+                    for r, t in zip(self.dataset['rotations'], 
+                        self.dataset['translations'])]
+        except KeyError:
+            return 'x, y, z'
 
     def get_space_group_number(self):
-        return self.dataset["number"]
+        try:
+            return self.dataset["number"]
+        except KeyError:
+            return 1
 
     def get_equiv_atoms(self):
         """Returs a list where each entry represents the index to the
         asymmetric atom. If P1 is assumed, then it just returns a list
         of the range of the atoms."""
-        return self.dataset["equivalent_atoms"]
+        try: 
+            return self.dataset["equivalent_atoms"]
+        except KeyError:
+            return []
 
     def get_equivalent_hydrogens(self):
         at_equiv = self.get_equiv_atoms()
